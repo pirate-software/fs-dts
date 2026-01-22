@@ -3,7 +3,7 @@ import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import path from 'path';
 import dotenv from 'dotenv';
-import { updateData } from './dts';
+import { DTS } from './dts';
 
 dotenv.config();
 
@@ -42,18 +42,22 @@ app.register(fastifyStatic, {
 });
 
 // Call updateData every UPDATE_INTERVAL_SECONDS
+const dts = new DTS(wikiBaseUrl, apiBaseUrl);
 setInterval(() => {
-    updateData(wikiBaseUrl, apiBaseUrl);
+    dts.updateData();
 }, updateInterval);
 
-console.log("Performing initial data update...");
-updateData(wikiBaseUrl, apiBaseUrl);
-
-console.log(`Starting server on port ${port}...`);
-app.listen({ port }, (err, address) => {
-    if (err) {
-        app.log.error(err);
-        process.exit(1);
-    }
-    console.log(`Server listening at ${address}`);
+console.log("Performing initial data update");
+dts.updateData().then(() => {
+    console.log(`Starting server on port ${port}`);
+    app.listen({ port }, (err, address) => {
+        if (err) {
+            app.log.error(err);
+            process.exit(1);
+        }
+        console.log(`Server listening at ${address}`);
+    });
+}).catch((err) => {
+    console.error("Error during initial data update:", err);
+    process.exit(1);
 });

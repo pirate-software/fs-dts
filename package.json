@@ -14,9 +14,10 @@
   "packageManager": "pnpm@10.22.0",
   "dependencies": {
     "@fastify/static": "^9.0.0",
+    "@pirate-software/fs-data": "link:..\\fs-data",
     "dotenv": "^17.2.3",
     "fastify": "^5.7.1",
-    "fs-data@latest": "link:..\\fs-data@latest"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^25.0.10",

@@ -11,15 +11,18 @@ importers:
       '@fastify/static':
         specifier: ^9.0.0
         version: 9.0.0
+      '@pirate-software/fs-data':
+        specifier: link:..\fs-data
+        version: link:../fs-data
       dotenv:
         specifier: ^17.2.3
         version: 17.2.3
       fastify:
         specifier: ^5.7.1
         version: 5.7.1
-      fs-data@latest:
-        specifier: link:..\fs-data@latest
-        version: link:../fs-data@latest
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^25.0.10
@@ -476,6 +479,9 @@ packages:
     resolution: {integrity: sha512-Ux4ygGWsu2c7isFWe8Yu1YluJmqVhxqK2cLXNQA5AcC3QfbGNpM7fu0Y8b/z16pXLnFxZYvWhd3fhBY9DLmC6Q==}
     engines: {node: '>=6'}
 
+  zod@4.3.6:
+    resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
+
 snapshots:
 
   '@cspotcode/source-map-support@0.8.1':
@@ -898,3 +904,5 @@ snapshots:
   v8-compile-cache-lib@3.0.1: {}
 
   yn@3.1.1: {}
+
+  zod@4.3.6: {}
