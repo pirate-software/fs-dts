@@ -143,3 +143,4 @@ vite.config.ts.timestamp-*
 ## Custom Rules
 /public/
 !/public/robots.txt
+/private/
