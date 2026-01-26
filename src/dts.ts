@@ -1,4 +1,5 @@
 import { Ferret, ferretSchema } from "@pirate-software/fs-data/build/ferrets/core";
+import { SCHEMA_VERSION_ID, ApiData } from "@pirate-software/fs-data/build/api";
 import { z } from "zod";
 import fs from "fs/promises";
 import { BirthdayString, PartialDateString, pathSchema } from "@pirate-software/fs-data/build/types";
@@ -50,16 +51,39 @@ const imageMetadataFileSchema = z.object({
 });
 type ImageMetadataFile = z.infer<typeof imageMetadataFileSchema>;
 
+const metaFileSchema = z.object({
+    apiVersion: z.object({
+        min: z.string(),
+        current: z.string()
+    }),
+    lastUpdated: z.string()
+});
+type MetaFile = z.infer<typeof metaFileSchema>;
+
+const ferretsJsonSchema = z.record(z.string(), z.any());
+type FerretsJson = z.infer<typeof ferretsJsonSchema>;
+
+type SquareBracketNest<T> = { open: number; close: number; children: SquareBracketNest<T>[] };
+interface SquareBracketNestNode extends SquareBracketNest<SquareBracketNestNode> {}
+
 const publicRoot = "./public";
 const privateRoot = "./private";
 
 export class DTS {
-    wikiBaseUrl: string;
+    wikiApiBaseUrl: string;
+    wikiPageRoot: string;
     apiBaseUrl: string;
     
-    constructor(wikiBaseUrl: string, apiBaseUrl: string) {
-        this.wikiBaseUrl = wikiBaseUrl;
+    constructor(wikiApiBaseUrl: string, wikiPageRoot: string, apiBaseUrl: string) {
+        this.wikiApiBaseUrl = wikiApiBaseUrl;
+        this.wikiPageRoot = wikiPageRoot;
+        if (!this.wikiPageRoot.endsWith("/")) {
+            this.wikiPageRoot += "/";
+        }
         this.apiBaseUrl = apiBaseUrl;
+        if (!this.apiBaseUrl.endsWith("/")) {
+            this.apiBaseUrl += "/";
+        }
     }
 
     private static nameAsSlug(name: string): string {
@@ -131,6 +155,7 @@ export class DTS {
      * Convert a date string output from wiki table to PartialDateString
      * @param date yyyy, yyyy-mm, yyyy-mm-dd, or empty
      * @returns partial date string or null if empty
+     * @throws {Error} if year < 2000 or month/day invalid
      */
     private static toPartialDateString(date: string): PartialDateString | null {
         if (date.length === 0) return null;
@@ -161,6 +186,7 @@ export class DTS {
      * Convert a date string output from wiki table (yyyy-mm-dd) to BirthdayString (mm-dd only)
      * @param date Date which may have a year
      * @returns birthday string or null if empty
+     * @throws {Error} if month or day missing or invalid
      */
     private static toBirthdayString(date: string): BirthdayString | null {
         if (date.length === 0) return null;
@@ -190,9 +216,91 @@ export class DTS {
         if (y < 2000) return null;
         return DTS.toPartialDateString(date);
     }
+
+    /**
+     * Parses nested double square brackets in a string.
+     * @param s input string
+     * @returns array of root SquareBracketNestNodes (each represents a [[...]] section, with children for nested [[...]] sections)
+     * @throws {Error} if unmatched brackets in string
+     */
+    private static _getDoubleSquareBracketNests(s: string): Array<SquareBracketNestNode> {
+        let stack: Array<SquareBracketNestNode> = [];
+        let roots: Array<SquareBracketNestNode> = [];
+        for (let i = 0; i < s.length - 1; i++) {
+            if (s[i] === "[" && s[i + 1] === "[") {
+                const newNode: SquareBracketNestNode = { open: i, close: -1, children: [] };
+                if (stack.length > 0) {
+                    stack[stack.length - 1].children.push(newNode);
+                } else {
+                    roots.push(newNode);
+                }
+                stack.push(newNode);
+                i++; // skip second [
+            } else if (s[i] === "]" && s[i + 1] === "]") {
+                if (stack.length === 0) {
+                    throw new Error(`Unmatched closing brackets at position ${i} in string "${s}"`);
+                }
+                const node = stack.pop()!;
+                node.close = i + 1;
+                i++; // skip second ]
+            }
+        }
+        if (stack.length > 0) {
+            throw new Error(`Unmatched opening brackets at position ${stack[0].open} in string "${s}"`);
+        }
+        return roots;
+    }
+
+    /**
+     * Processes wikitext to plain text, preserving internal links only for linkable ferrets.
+     * @param s wikitext string
+     * @param isLinkableFerret function to determine if a link target is a linkable ferret, if so links to it are preserved in [[Link|Text]] format
+     * @returns processed string
+     * @throws {Error} if unmatched brackets in wikitext
+     */
+    private static processWikitext(s: string, isLinkableFerret: (name: string) => boolean): string {
+        let subbed = s
+            .replace(/\[http[^\s]* ([^\]]+)\]/g, "$1") // Remove external links
+            .replace(/''+/g, "") // Remove italics/bold
+            .replace(/<ref.*?>.*?<\/ref>/g, "") // Remove references
+            .replace(/<.*?>/g, "") // Remove other HTML tags
+            .replace(/\{\{.*?\}\}/g, ""); // Remove templates
+        
+        // Process internal links
+        const nests = DTS._getDoubleSquareBracketNests(s);
+        
+        let out = "";
+        let lastIndex = 0;
+        for (const nest of nests) {
+            out += subbed.slice(lastIndex, nest.open);
+            const innerText = s.slice(nest.open + 2, nest.close - 2);
+            if (!innerText.match(/^File:/)) { // ignore file links completely (since inner text is caption)
+                const linkMatch = /^([^\|\]]*)(\|[^\]]+)?$/.exec(innerText);
+                if (linkMatch) { // In-wiki link
+                    const linkTarget = linkMatch[1].trim();
+                    const linkText = (linkMatch[2]) ? linkMatch[2].slice(1).trim() : linkTarget;
+                    if (isLinkableFerret(linkTarget)) {
+                        out += `[[${linkTarget}|${linkText}]]`;
+                    } else { // Just keep text of non-ferret links
+                        out += linkText;
+                    }
+                }
+            }
+            lastIndex = nest.close;
+        }
+        out += subbed.slice(lastIndex);
+
+        return out.trim();
+    }
     
+    /**
+     * Gets mediawiki action API response for given parameters.
+     * @param params wiki API parameters
+     * @returns parsed JSON response
+     * @throws {Error} if JSON parsing fails
+     */
     private async getWikiAPI(params: Record<string, string>): Promise<any> {
-        const res: Response = await fetch(this.wikiBaseUrl + "?" + new URLSearchParams(params).toString());
+        const res: Response = await fetch(this.wikiApiBaseUrl + "?" + new URLSearchParams(params).toString());
         try {
             const json = await res.json();
             return json;
@@ -204,10 +312,10 @@ export class DTS {
         }
     }
 
-    private async getPageWikitext(title: string): Promise<string> {
+    private async getPageWikitext(wikiPage: string): Promise<string> {
         const params = {
             "action": "parse",
-            "page": title.replace(/ /g, "_"),
+            "page": wikiPage,
             "format": "json",
             "prop": "wikitext"
         }
@@ -289,27 +397,6 @@ export class DTS {
         return mugshotPath;
     }
 
-    private async getFerret(tableEntry: FerretTableEntry): Promise<Ferret> {
-        return {
-            name: tableEntry.name,
-            wikipage: DTS.nameAsWikiPageUrl(tableEntry.name),
-            aliases: [], //todo
-            commands: DTS.nameAsChatCommands(tableEntry.name),
-            sex: tableEntry.gender,
-            birth: null, //todo
-            birthday: null, //todo
-            arrival: null, //todo
-            valhalla: null, //todo
-            playgroup: tableEntry.playgroup,
-            summary: "", //todo
-            lore: "", //todo
-            clips: [],
-            mugshot: "", //todo
-            images: [],
-            merch: []
-        }
-    }
-
     private async getImageMetaFile(): Promise<ImageMetadataFile> {
         const imageMetaPath = `${privateRoot}/image-metadata.json`;
         if (!(await fs.stat(privateRoot).catch(() => false)) || !(await fs.stat(imageMetaPath).catch(() => false))) {
@@ -331,32 +418,206 @@ export class DTS {
         await fs.writeFile(imageMetaPath, JSON.stringify(data, null, 2), "utf-8");
     }
 
-    async updateData(): Promise<void> {
-        console.log("Updating data");
-    
-        console.log("Fetching")
-        const imageMeta = await this.getImageMetaFile();
-        const ferretName = "Beans";
-        const ferretSlug = DTS.nameAsSlug(ferretName);
-        const { url: fUrl, timestamp: fts } = (await this.getMugshotUrl(ferretName))!;
-        console.log(`Mugshot URL: ${fUrl}, timestamp: ${fts}`);
-
-        if (imageMeta.mugshots[ferretSlug]?.lastUpdateTimestamp === fts) {
-            console.log("Mugshot is up to date, no changes needed");
-        } else {
-            await this.saveMugshot(ferretSlug, fUrl!);
-            console.log("Saved new mugshot");
-            imageMeta.mugshots[ferretSlug] = fts;
-            await this.saveImageMetaFile(imageMeta);
-            console.log("Saved image metadata file");
+    private async parseFerretWikitext(wikitext: string, isLinkableFerret: (wikiPage: string) => boolean): Promise<{summary: string, lore: string, aliases: string[]}> {
+        const pageContentMatch = /^(?:<!--[\s\S]*?-->\s*)*\s*\{\{Infobox Ferret([\s\S]*?)\}\}([\s\S]*)\n\s*==\s*Lore\s*==([\s\S]*?)(\n\s*==|$)/.exec(wikitext);
+        if (!pageContentMatch) {
+            throw new Error("Infobox or lore section header misformatted.");
+        }
+        
+        const infoboxContent = /\|[ \t]*(\w+)[ \t]*=[ \t]*(.*)/g.exec(pageContentMatch[1]);
+        if (!infoboxContent) {
+            throw new Error("Infobox content misformatted.");
+        }
+        
+        let aliases: string[] = [];
+        for (let i = 0; i < infoboxContent.length; i+=2) {
+            const field = infoboxContent[i];
+            const value = infoboxContent[i + 1];
+            if (/^(nickname|shayename)s?$/i.test(field)) {
+                aliases.push(...value.split(",").map(s => s.trim()).filter(s => s.length > 0));
+            }
         }
 
-        console.log("Data update complete");
+        let summary = DTS.processWikitext(pageContentMatch[2].trim(), isLinkableFerret);
+        if (summary.length < 100 && summary.endsWith("lacking intro")) { // missing summary
+            summary = "";
+        }
+
+        const lore = DTS.processWikitext(pageContentMatch[3].trim(), isLinkableFerret);
+
+        return { summary, lore, aliases };
+    }
+
+    private async updateFerret(tableEntry: FerretTableEntry, ferretsTable: FerretTableEntry[], imageMeta: ImageMetadataFile): Promise<Ferret> {
+        const name = tableEntry.name;
+        const wikiPage = DTS.nameAsWikiPageUrl(name);
+
+        // Parse wiki page details
+        let wikiText: string, summary: string, lore: string, aliases: string[];
+        try {
+            wikiText = await this.getPageWikitext(wikiPage);
+        } catch (e) {
+            throw new Error(`Failed to get wikitext for ferret "${name}" (wiki page "${wikiPage}"): ${e}`);
+        }
+
+        try {
+            ({ summary, lore, aliases } = await this.parseFerretWikitext(wikiText, (wikiPage: string) => ferretsTable.some(fe => DTS.nameAsWikiPageUrl(fe.name) === wikiPage)));
+        } catch (e) {
+            throw new Error(`Failed to parse wikitext for ferret "${name}" (wiki page "${wikiPage}"): ${e}`);
+        }
+
+        // Parse table entry
+        let birth: PartialDateString | null, birthday: BirthdayString | null, arrival: PartialDateString | null, valhalla: PartialDateString | null;
+        try {
+            birth = DTS.toDOBString(tableEntry["birth date"]);
+        } catch (e) {
+            throw new Error(`Failed to parse date of birth for ferret "${name}": ${e}`);
+        }
+
+        try {
+            birthday = DTS.toBirthdayString(tableEntry["birth date"]);
+        } catch (e) {
+            throw new Error(`Failed to parse birthday for ferret "${name}": ${e}`);
+        }
+
+        try {
+            arrival = DTS.toPartialDateString(tableEntry["arrival date"]);
+        } catch (e) {
+            throw new Error(`Failed to parse arrival date for ferret "${name}": ${e}`);
+        }
+
+        try {
+            valhalla = DTS.toPartialDateString(tableEntry["valhalla date"]);
+        } catch (e) {
+            throw new Error(`Failed to parse valhalla date for ferret "${name}": ${e}`);
+        }
+
+        // Get mugshot
+        let mugshotUrl: string;
+        try {
+            const ferretSlug = DTS.nameAsSlug(name);
+            const { url: mugshotWikiUrl, timestamp: mugshotTimestamp } = await this.getMugshotUrl(name) ?? { url: this.apiBaseUrl + "mugshot_placeholder.png", timestamp: "" };
+            if (!imageMeta.mugshots[ferretSlug] || imageMeta.mugshots[ferretSlug].lastUpdateTimestamp !== mugshotTimestamp) {
+                const mugshotPath = await this.saveMugshot(ferretSlug, mugshotWikiUrl);
+                imageMeta.mugshots[ferretSlug] = {
+                    path: mugshotPath,
+                    lastUpdateTimestamp: mugshotTimestamp
+                }
+            }
+            if (!imageMeta.mugshots[ferretSlug].path.startsWith(publicRoot)) {
+                throw new Error(`Mugshot path "${imageMeta.mugshots[ferretSlug].path}" is not in public root "${publicRoot}"`);
+            }
+            mugshotUrl = this.apiBaseUrl + imageMeta.mugshots[ferretSlug].path.substring(publicRoot.length+1);
+        } catch (e) {
+            throw new Error(`Failed to get mugshot for ferret "${name}": ${e}`);
+        }
+
+        return {
+            name: name,
+            wikipage: wikiPage,
+            aliases: aliases,
+            commands: DTS.nameAsChatCommands(name),
+            sex: tableEntry.gender,
+            birth: birth,
+            birthday: birthday,
+            arrival: arrival,
+            valhalla: valhalla,
+            playgroup: tableEntry.playgroup,
+            summary: summary,
+            lore: lore,
+            clips: [],
+            mugshot: mugshotUrl,
+            images: [],
+            merch: []
+        }
+    }
+
+    private async getFerretsJson(): Promise<FerretsJson> {
+        const ferretsJsonPath = `${publicRoot}/ferrets.json`;
+        let parsed: FerretsJson;
+        try {
+            const data = await fs.readFile(ferretsJsonPath, "utf-8");
+            parsed = ferretsJsonSchema.parse(JSON.parse(data));
+        } catch (e) {
+            console.info("Error reading/parsing current ferrets.json file:", e);
+            console.info("Assuming no existing ferrets.json file.");
+            return {};
+        }
+        return parsed;
+    }
+
+    private async saveFerretsJson(data: FerretsJson): Promise<void> {
+        const ferretsJsonPath = `${publicRoot}/ferrets.json`;
+        await fs.writeFile(ferretsJsonPath, JSON.stringify(data, null, 2), "utf-8");
+    }
+
+    private async getFerretsMetaFile(): Promise<MetaFile> {
+        const metaFilePath = `${publicRoot}/ferrets.meta.json`;
+        let parsed: MetaFile;
+        try {
+            const data = await fs.readFile(metaFilePath, "utf-8");
+            parsed = metaFileSchema.parse(JSON.parse(data));
+        } catch (e) {
+            console.info("Error reading/parsing current ferrets.meta.json file:", e);
+            console.info("Assuming no existing ferrets.meta.json file.");
+            return {
+                apiVersion: {
+                    min: SCHEMA_VERSION_ID,
+                    current: SCHEMA_VERSION_ID
+                },
+                lastUpdated: new Date().toISOString()
+            };
+        }
+        return parsed;
+    }
+
+    private async saveFerretsMetaFile(data: MetaFile): Promise<void> {
+        const metaFilePath = `${publicRoot}/ferrets.meta.json`;
+        await fs.writeFile(metaFilePath, JSON.stringify(data, null, 2), "utf-8");
+    }
+
+    async updateData(apiMinVersion: string): Promise<void> {
+        console.log("Updating data");
+    
+        console.log("Fetching ferrets table");
+        const ferretsTable = await this.getFerretsTable();
+        console.log(`Fetched ${ferretsTable.length} ferret entries from table`);
+
+        console.log("Loading image metadata file");
+        const imageMeta = await this.getImageMetaFile();
+        console.log(`Loaded image metadata for ${Object.keys(imageMeta.mugshots).length} mugshots`);
+
+        let ferrets: Ferret[] = [];
+        for (const tableEntry of ferretsTable) {
+            console.log(`Processing ferret "${tableEntry.name}"`);
+            const ferret = await this.updateFerret(tableEntry, ferretsTable, imageMeta);
+            ferrets.push(ferret);
+        }
         
+        console.log("Getting ferrets.json");
+        let ferretsJson: FerretsJson = await this.getFerretsJson();
 
-        // let ferrets = (await this.getFerretsTable());
-        // await this.getPageWikitext("Beans");
+        console.log("Getting ferrets.meta.json");
+        let metaFile: MetaFile = await this.getFerretsMetaFile();
 
-        // https://github.com/pirate-software/fs-data/blob/main/wikiscraper/scrape.py#L19
+        console.log("Updating ferrets.json");
+        const ferretsData: ApiData = {
+            ferrets: ferrets
+        };
+        ferretsJson[SCHEMA_VERSION_ID] = ferretsData;
+        await this.saveFerretsJson(ferretsJson);
+        console.log("Updated ferrets.json");
+        
+        console.log("Saving image metadata file");
+        await this.saveImageMetaFile(imageMeta);
+        console.log("Saved image metadata file");
+        
+        console.log("Updating ferrets.meta.json");
+        metaFile.apiVersion.current = SCHEMA_VERSION_ID;
+        metaFile.lastUpdated = new Date().toISOString();
+        await this.saveFerretsMetaFile(metaFile);
+        console.log("Updated ferrets.meta.json");
+
+        console.log("Data update complete");
     }
 }

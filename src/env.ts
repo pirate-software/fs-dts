@@ -1,0 +1,47 @@
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+if (!process.env.PORT) {
+    throw new Error('PORT not set in environment variables. Did you make a .env file?');
+}
+
+if (!process.env.UPDATE_INTERVAL_SECONDS) {
+    throw new Error('UPDATE_INTERVAL_SECONDS not set in environment variables.');
+}
+
+if (!process.env.WIKI_API_URL) {
+    throw new Error('WIKI_API_URL not set in environment variables.');
+}
+
+if (!process.env.API_BASE_URL) {
+    throw new Error('API_BASE_URL not set in environment variables.');
+}
+
+if (!process.env.WIKI_PAGE_ROOT) {
+    throw new Error('WIKI_PAGE_ROOT not set in environment variables.');
+}
+
+if (!process.env.API_MIN_VERSION) {
+    throw new Error('API_MIN_VERSION not set in environment variables.');
+}
+
+let _discordWebhookUrl = process.env.DISCORD_WEBHOOK_URL || null;
+let _discordWebhookInfoPrefix = process.env.DISCORD_WEBHOOK_INFO_PREAMBLE || "";
+let _discordWebhookErrorPrefix = process.env.DISCORD_WEBHOOK_ERROR_PREAMBLE || "";
+
+if (!_discordWebhookUrl || !_discordWebhookUrl.startsWith('http')) {
+    console.log("Discord webhook not set")
+    _discordWebhookUrl = null;
+}
+
+export const port: number = parseInt(process.env.PORT);
+export const updateInterval: number = parseInt(process.env.UPDATE_INTERVAL_SECONDS) * 1000;
+export const wikiApiBaseUrl: string = process.env.WIKI_API_URL;
+export const apiBaseUrl: string = process.env.API_BASE_URL;
+export const wikiPageRoot: string = process.env.WIKI_PAGE_ROOT;
+export const discordWebhookUrl: string | null = _discordWebhookUrl;
+export const discordWebhookInfoPrefix: string = _discordWebhookInfoPrefix;
+export const discordWebhookErrorPrefix: string = _discordWebhookErrorPrefix;
+export const apiMinVersion: string = process.env.API_MIN_VERSION;
+

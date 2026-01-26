@@ -141,6 +141,6 @@ vite.config.ts.timestamp-*
 .vite/
 
 ## Custom Rules
-/public/
-!/public/robots.txt
+/public/mugshots
+/public/*.json
 /private/

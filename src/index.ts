@@ -2,37 +2,8 @@
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import path from 'path';
-import dotenv from 'dotenv';
 import { DTS } from './dts';
-
-dotenv.config();
-
-
-if (!process.env.PORT) {
-    console.log('PORT not set in environment variables. Did you make a .env file?');
-    process.exit(1);
-}
-
-if (!process.env.UPDATE_INTERVAL_SECONDS) {
-    console.log('UPDATE_INTERVAL_SECONDS not set in environment variables.');
-    process.exit(1);
-}
-
-if (!process.env.WIKI_API_URL) {
-    console.log('WIKI_API_URL not set in environment variables.');
-    process.exit(1);
-}
-
-if (!process.env.API_BASE_URL) {
-    console.log('API_BASE_URL not set in environment variables.');
-    process.exit(1);
-}
-
-
-const port = parseInt(process.env.PORT);
-const updateInterval = parseInt(process.env.UPDATE_INTERVAL_SECONDS) * 1000;
-const wikiBaseUrl = process.env.WIKI_API_URL;
-const apiBaseUrl = process.env.API_BASE_URL;
+import { port, updateInterval, wikiApiBaseUrl, apiBaseUrl, wikiPageRoot, discordWebhookUrl, discordWebhookInfoPrefix, discordWebhookErrorPrefix, apiMinVersion } from './env';
 
 const app = Fastify();
 
@@ -41,14 +12,46 @@ app.register(fastifyStatic, {
     prefix: '/',
 });
 
+// Webhooks
+async function sendDiscordWebhook(message: string, isError: boolean = false) { {
+    if (!discordWebhookUrl) {
+        console.log("Discord webhook URL not set, skipping webhook");
+        return;
+    }
+    const prefix = isError ? discordWebhookErrorPrefix : discordWebhookInfoPrefix;
+    const fullMessage = prefix + "\n" + message;
+    console.log("Sending Discord webhook:", fullMessage, "to", discordWebhookUrl);
+    await fetch(discordWebhookUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content: fullMessage }),
+    }).catch((err) => {
+        console.error("Failed to send Discord webhook:", err);
+    });
+} }
+
+
 // Call updateData every UPDATE_INTERVAL_SECONDS
-const dts = new DTS(wikiBaseUrl, apiBaseUrl);
+const dts = new DTS(wikiApiBaseUrl, wikiPageRoot, apiBaseUrl);
+
+async function updateData() {
+    await dts.updateData(apiMinVersion);
+    try {
+        // sendDiscordWebhook("Data update completed successfully.");
+    } catch (err) {
+        console.error("Error updating data:", err);
+        // sendDiscordWebhook(`\`\`\`\n${err}\n\`\`\``, true);
+    }
+}
+
 setInterval(() => {
-    dts.updateData();
+    updateData();
 }, updateInterval);
 
 console.log("Performing initial data update");
-dts.updateData().then(() => {
+updateData().then(() => {
     console.log(`Starting server on port ${port}`);
     app.listen({ port }, (err, address) => {
         if (err) {
@@ -57,7 +60,4 @@ dts.updateData().then(() => {
         }
         console.log(`Server listening at ${address}`);
     });
-}).catch((err) => {
-    console.error("Error during initial data update:", err);
-    process.exit(1);
-});
+})
