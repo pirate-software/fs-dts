@@ -36,8 +36,8 @@ async function sendDiscordWebhook(message: string, isError: boolean = false) { {
 // Call updateData every UPDATE_INTERVAL_SECONDS
 const dts = new DTS(wikiApiBaseUrl, wikiPageRoot, apiBaseUrl);
 
-async function updateData() {
-    await dts.updateData(apiMinVersion);
+async function updateFerretData() {
+    await dts.updateFerretsData(apiMinVersion);
     try {
         // sendDiscordWebhook("Data update completed successfully.");
     } catch (err) {
@@ -46,12 +46,17 @@ async function updateData() {
     }
 }
 
-setInterval(() => {
-    updateData();
-}, updateInterval);
+async function run() {
+    setInterval(() => {
+        updateFerretData();
+    }, updateInterval);
+    
+    console.log("Performing initial ferret data update");
+    await updateFerretData();
 
-console.log("Performing initial data update");
-updateData().then(() => {
+    console.log("Performing initial OutNow data update");
+    await dts.updateOutNowFerretsData(apiMinVersion);
+
     console.log(`Starting server on port ${port}`);
     app.listen({ port }, (err, address) => {
         if (err) {
@@ -60,4 +65,6 @@ updateData().then(() => {
         }
         console.log(`Server listening at ${address}`);
     });
-})
+}
+
+run();

@@ -1,10 +1,12 @@
 import { Ferret, ferretSchema } from "@pirate-software/fs-data/build/ferrets/core";
-import { SCHEMA_VERSION_ID, ApiData } from "@pirate-software/fs-data/build/api";
+import { Playgroup, playgroupSchema } from "@pirate-software/fs-data/build/ferrets/playgroups";
+import { SCHEMA_VERSION_ID, FerretsApiData, OutNowFerretsData, ApiMeta, apiMetaSchema } from "@pirate-software/fs-data/build/api";
 import { z } from "zod";
 import fs from "fs/promises";
 import { BirthdayString, PartialDateString, pathSchema } from "@pirate-software/fs-data/build/types";
 import { deepEqual } from "assert";
 
+//#region Schemas
 const dateStringSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const asciiSchema = z.string().regex(/^[\x20-\x7E]+$/);
 
@@ -51,23 +53,90 @@ const imageMetadataFileSchema = z.object({
 });
 type ImageMetadataFile = z.infer<typeof imageMetadataFileSchema>;
 
-const metaFileSchema = z.object({
-    apiVersion: z.object({
-        min: z.string(),
-        current: z.string()
-    }),
-    lastUpdated: z.string()
-});
-type MetaFile = z.infer<typeof metaFileSchema>;
+const versionedApiJsonSchema = z.record(z.string(), z.any());
+type VersionedApiJson = z.infer<typeof versionedApiJsonSchema>;
+//#endregion
 
-const ferretsJsonSchema = z.record(z.string(), z.any());
-type FerretsJson = z.infer<typeof ferretsJsonSchema>;
-
+// Non-schema types
 type SquareBracketNest<T> = { open: number; close: number; children: SquareBracketNest<T>[] };
 interface SquareBracketNestNode extends SquareBracketNest<SquareBracketNestNode> {}
 
+// Consts
 const publicRoot = "./public";
 const privateRoot = "./private";
+const ferretsJsonFilename = "ferrets.json";
+const ferretsMetaJsonFilename = "ferrets.meta.json";
+const outnowJsonFilename = "outnow.json";
+const imageMetaFilename = "images.meta.json";
+
+// old data
+const old_playgroups = {
+  bepeepo: {
+    name: "BePeepo",
+    description: "Badger and Peepo's playgroup.",
+  },
+  fs: {
+    name: "F&S",
+    description: "Finch and Stinky's playgroup.",
+  },
+  genpop: {
+    name: "General Population",
+    description:
+      "The biggest playgroup of ferrets in the rescue consisting of 20+ ferrets.",
+  },
+  k: {
+    name: "K2",
+    description: "Koko (Nameko) and Kiki (Enoki)'s playgroup.",
+  },
+  kyosai: {
+    name: "Kyo & Sai",
+    description: "Kyo and Sai's playgroup.",
+  },
+  luno: {
+    name: "LuNo",
+    description: "Lulu and Noodle's playgroup.",
+  },
+  m: {
+    name: "M3",
+    description: "Big Mike, Maisy, and Milo's playgroup.",
+  },
+  ocarinaoftube: {
+    name: "Ocarina of Tube",
+    description:
+      "Group of seven Ferret sages who arrived together in January 2026.",
+  },
+  oldies: {
+    name: "Oldies",
+    description:
+      "Playgroup consisting of the older ferrets, being 5+ years old.",
+  },
+  pms: {
+    name: "PMS",
+    description: "Pepper, Moose, and Salt's playgroup.",
+  },
+  quarantine: {
+    name: "Quarantine",
+    description:
+      "A group for incoming ferrets that either need observation time for medical needs or have not yet been placed into a permanent group.",
+  },
+  rb: {
+    name: "R&B",
+    description: "Rusty and Bruce's playgroup.",
+  },
+  solo: {
+    name: "Solo",
+    description: "Ferrets who usually go out solo.",
+  },
+  valhalla: {
+    name: "Valhalla",
+    description: "Ferrets who have passed away.",
+  },
+  vons: {
+    name: "VONS",
+    description: "Vincent, Onion, Nacho, and Salsa's playgroup.",
+  },
+} as Record<string, { name: string; description: string }>;
+
 
 export class DTS {
     wikiApiBaseUrl: string;
@@ -86,6 +155,7 @@ export class DTS {
         }
     }
 
+    //#region Static utility functions
     private static nameAsSlug(name: string): string {
         return name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
     }
@@ -267,13 +337,14 @@ export class DTS {
             .replace(/\{\{.*?\}\}/g, ""); // Remove templates
         
         // Process internal links
-        const nests = DTS._getDoubleSquareBracketNests(s);
+        const nests = DTS._getDoubleSquareBracketNests(subbed);
         
         let out = "";
         let lastIndex = 0;
+        console.log("Nests:", nests);
         for (const nest of nests) {
             out += subbed.slice(lastIndex, nest.open);
-            const innerText = s.slice(nest.open + 2, nest.close - 2);
+            const innerText = subbed.slice(nest.open+2, nest.close-1);
             if (!innerText.match(/^File:/)) { // ignore file links completely (since inner text is caption)
                 const linkMatch = /^([^\|\]]*)(\|[^\]]+)?$/.exec(innerText);
                 if (linkMatch) { // In-wiki link
@@ -286,13 +357,15 @@ export class DTS {
                     }
                 }
             }
-            lastIndex = nest.close;
+            lastIndex = nest.close+1;
         }
         out += subbed.slice(lastIndex);
 
         return out.trim();
     }
+    //#endregion
     
+    //#region Wiki API functions
     /**
      * Gets mediawiki action API response for given parameters.
      * @param params wiki API parameters
@@ -379,7 +452,9 @@ export class DTS {
         }
         return null;
     }
+    //#endregion
 
+    //#region File Handling
     private async saveMugshot(ferretSlug: string, url: string): Promise<string> {
         const mugshotPath = `${publicRoot}/mugshots/${ferretSlug}.png`;
 
@@ -398,7 +473,7 @@ export class DTS {
     }
 
     private async getImageMetaFile(): Promise<ImageMetadataFile> {
-        const imageMetaPath = `${privateRoot}/image-metadata.json`;
+        const imageMetaPath = `${privateRoot}/${imageMetaFilename}`;
         if (!(await fs.stat(privateRoot).catch(() => false)) || !(await fs.stat(imageMetaPath).catch(() => false))) {
             // file doesn't exist
             return { mugshots: {} };
@@ -410,13 +485,58 @@ export class DTS {
     }
 
     private async saveImageMetaFile(data: ImageMetadataFile): Promise<void> {
-        const imageMetaPath = `${privateRoot}/image-metadata.json`;
+        const imageMetaPath = `${privateRoot}/${imageMetaFilename}`;
         if (!(await fs.stat(privateRoot).catch(() => false))) {
             // create private directory
             await fs.mkdir(privateRoot, { recursive: false });
         }
         await fs.writeFile(imageMetaPath, JSON.stringify(data, null, 2), "utf-8");
     }
+
+    private async getVersionedApiJson(path: string): Promise<VersionedApiJson> {
+        let parsed: VersionedApiJson;
+        try {
+            const data = await fs.readFile(path, "utf-8");
+            parsed = versionedApiJsonSchema.parse(JSON.parse(data));
+        } catch (e) {
+            console.info(`Error reading/parsing current ${ferretsJsonFilename} file:`, e);
+            console.info(`Assuming no existing ${ferretsJsonFilename} file.`);
+            return {};
+        }
+        return parsed;
+    }
+
+    private async saveFerretsJson(data: VersionedApiJson): Promise<void> {
+        const ferretsJsonPath = `${publicRoot}/${ferretsJsonFilename}`;
+        await fs.writeFile(ferretsJsonPath, JSON.stringify(data, null, 2), "utf-8");
+    }
+
+    private async getFerretsMetaFile(): Promise<ApiMeta> {
+        const metaFilePath = `${publicRoot}/${ferretsMetaJsonFilename}`;
+        let parsed: ApiMeta;
+        try {
+            const data = await fs.readFile(metaFilePath, "utf-8");
+            parsed = apiMetaSchema.parse(JSON.parse(data));
+        } catch (e) {
+            console.info(`Error reading/parsing current ${ferretsMetaJsonFilename} file:`, e);
+            console.info(`Assuming no existing ${ferretsMetaJsonFilename} file.`);
+            return {
+                apiVersion: {
+                    min: SCHEMA_VERSION_ID,
+                    current: SCHEMA_VERSION_ID
+                },
+                lastUpdated: new Date().toISOString()
+            };
+        }
+        return parsed;
+    }
+
+    private async saveFerretsMetaFile(data: ApiMeta): Promise<void> {
+        const metaFilePath = `${publicRoot}/${ferretsMetaJsonFilename}`;
+        await fs.writeFile(metaFilePath, JSON.stringify(data, null, 2), "utf-8");
+    }
+
+    //#endregion
 
     private async parseFerretWikitext(wikitext: string, isLinkableFerret: (wikiPage: string) => boolean): Promise<{summary: string, lore: string, aliases: string[]}> {
         const pageContentMatch = /^(?:<!--[\s\S]*?-->\s*)*\s*\{\{Infobox Ferret([\s\S]*?)\}\}([\s\S]*)\n\s*==\s*Lore\s*==([\s\S]*?)(\n\s*==|$)/.exec(wikitext);
@@ -532,51 +652,23 @@ export class DTS {
         }
     }
 
-    private async getFerretsJson(): Promise<FerretsJson> {
-        const ferretsJsonPath = `${publicRoot}/ferrets.json`;
-        let parsed: FerretsJson;
-        try {
-            const data = await fs.readFile(ferretsJsonPath, "utf-8");
-            parsed = ferretsJsonSchema.parse(JSON.parse(data));
-        } catch (e) {
-            console.info("Error reading/parsing current ferrets.json file:", e);
-            console.info("Assuming no existing ferrets.json file.");
-            return {};
-        }
-        return parsed;
+    async updateOutNowFerretsData(apiMinVersion: string): Promise<void> {
+        console.log("Updating OutNow data");
+    
+        console.log(`Getting ${outnowJsonFilename}`);
+        let outnowJson: VersionedApiJson = await this.getVersionedApiJson(`${publicRoot}/${outnowJsonFilename}`);
+        console.log(`Updating ${outnowJsonFilename}`);
+        const outnowData: OutNowFerretsData = {
+            ferrets: [] //TODO: implement OutNow data population
+        };
+        outnowJson[SCHEMA_VERSION_ID] = outnowData;
+        await fs.writeFile(`${publicRoot}/${outnowJsonFilename}`, JSON.stringify(outnowJson, null, 2), "utf-8");
+        console.log(`Updated ${outnowJsonFilename}`);
+
+        console.log("OutNow data update complete");
     }
 
-    private async saveFerretsJson(data: FerretsJson): Promise<void> {
-        const ferretsJsonPath = `${publicRoot}/ferrets.json`;
-        await fs.writeFile(ferretsJsonPath, JSON.stringify(data, null, 2), "utf-8");
-    }
-
-    private async getFerretsMetaFile(): Promise<MetaFile> {
-        const metaFilePath = `${publicRoot}/ferrets.meta.json`;
-        let parsed: MetaFile;
-        try {
-            const data = await fs.readFile(metaFilePath, "utf-8");
-            parsed = metaFileSchema.parse(JSON.parse(data));
-        } catch (e) {
-            console.info("Error reading/parsing current ferrets.meta.json file:", e);
-            console.info("Assuming no existing ferrets.meta.json file.");
-            return {
-                apiVersion: {
-                    min: SCHEMA_VERSION_ID,
-                    current: SCHEMA_VERSION_ID
-                },
-                lastUpdated: new Date().toISOString()
-            };
-        }
-        return parsed;
-    }
-
-    private async saveFerretsMetaFile(data: MetaFile): Promise<void> {
-        const metaFilePath = `${publicRoot}/ferrets.meta.json`;
-        await fs.writeFile(metaFilePath, JSON.stringify(data, null, 2), "utf-8");
-    }
-
-    async updateData(apiMinVersion: string): Promise<void> {
+    async updateFerretsData(apiMinVersion: string): Promise<void> {
         console.log("Updating data");
     
         console.log("Fetching ferrets table");
@@ -588,35 +680,46 @@ export class DTS {
         console.log(`Loaded image metadata for ${Object.keys(imageMeta.mugshots).length} mugshots`);
 
         let ferrets: Ferret[] = [];
-        for (const tableEntry of ferretsTable) {
+        let playgroups: Record<string, Playgroup> = {};
+        for (const tableEntry of ferretsTable.filter(f => f.name == "Onion")) { //TEMP: only first ferret for testing
             console.log(`Processing ferret "${tableEntry.name}"`);
             const ferret = await this.updateFerret(tableEntry, ferretsTable, imageMeta);
             ferrets.push(ferret);
+            if (!playgroups[ferret.playgroup]) {
+                const pgInfo = old_playgroups[ferret.playgroup];
+                playgroups[ferret.playgroup] = {
+                    name: pgInfo ? pgInfo.name : ferret.playgroup,
+                    tooltip: pgInfo ? pgInfo.description : "",
+                    description: "",
+                    image: null
+                }
+            }
         }
         
-        console.log("Getting ferrets.json");
-        let ferretsJson: FerretsJson = await this.getFerretsJson();
+        console.log(`Getting ${ferretsJsonFilename}`);
+        let ferretsJson: VersionedApiJson = await this.getVersionedApiJson(`${publicRoot}/${ferretsJsonFilename}`);
 
-        console.log("Getting ferrets.meta.json");
-        let metaFile: MetaFile = await this.getFerretsMetaFile();
+        console.log(`Getting ${ferretsMetaJsonFilename}`);
+        let metaFile: ApiMeta = await this.getFerretsMetaFile();
 
-        console.log("Updating ferrets.json");
-        const ferretsData: ApiData = {
-            ferrets: ferrets
-        };
+        console.log(`Updating ${ferretsJsonFilename}`);
+        const ferretsData: FerretsApiData = {
+            ferrets: Object.fromEntries(ferrets.map(f => [f.name, f])),
+            playgroups: playgroups
+        }
         ferretsJson[SCHEMA_VERSION_ID] = ferretsData;
         await this.saveFerretsJson(ferretsJson);
-        console.log("Updated ferrets.json");
+        console.log(`Updated ${ferretsJsonFilename}`);
         
         console.log("Saving image metadata file");
         await this.saveImageMetaFile(imageMeta);
         console.log("Saved image metadata file");
         
-        console.log("Updating ferrets.meta.json");
+        console.log(`Updating ${ferretsMetaJsonFilename}`);
         metaFile.apiVersion.current = SCHEMA_VERSION_ID;
         metaFile.lastUpdated = new Date().toISOString();
         await this.saveFerretsMetaFile(metaFile);
-        console.log("Updated ferrets.meta.json");
+        console.log(`Updated ${ferretsMetaJsonFilename}`);
 
         console.log("Data update complete");
     }
