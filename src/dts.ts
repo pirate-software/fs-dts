@@ -7,6 +7,7 @@ import { BirthdayString, PartialDateString, pathSchema } from "@pirate-software/
 import { deepEqual } from "assert";
 import { queryObjects } from "v8";
 import { info } from "console";
+import { DiscordLogger, Logger } from "./logger";
 
 //#region MW API Query Schemas
 const apiResWikitextSchema = z.object({
@@ -97,8 +98,10 @@ export class DTS {
     wikiApiBaseUrl: string;
     wikiPageRoot: string;
     apiBaseUrl: string;
+    logger: Logger;
     
-    constructor(wikiApiBaseUrl: string, wikiPageRoot: string, apiBaseUrl: string) {
+    constructor(logger: Logger, wikiApiBaseUrl: string, wikiPageRoot: string, apiBaseUrl: string) {
+        this.logger = logger;
         this.wikiApiBaseUrl = wikiApiBaseUrl;
         this.wikiPageRoot = wikiPageRoot;
         if (!this.wikiPageRoot.endsWith("/")) {
@@ -332,9 +335,9 @@ export class DTS {
             const json = await res.json();
             return json;
         } catch (e) {
-            console.error("Error parsing JSON from wiki API response");
-            console.error("Response text:", await res.text());
-            console.error("Error:", e);
+            this.logger.error("Error parsing JSON from wiki API response");
+            this.logger.error("Response text:", await res.text());
+            this.logger.error("Error:", e);
             throw e;
         }
     }
@@ -345,7 +348,7 @@ export class DTS {
         try {
             parsed = schema.parse(res);
         } catch (e) {
-            console.error("Error parsing wiki API response with schema:", e);
+            this.logger.error("Error parsing wiki API response with schema:", e);
             throw e;
         }
         return parsed;
@@ -529,7 +532,7 @@ export class DTS {
     private async loadOldPlaygroups(): Promise<OldPlaygroups> {
         const oldPlaygroupsPath = `${privateRoot}/${oldPlaygroupsJsonFilename}`;
         if (!(await fs.stat(oldPlaygroupsPath).catch(() => false))) {
-            console.log("Old playgroups file not found, returning empty playgroups");
+            this.logger.log("Old playgroups file not found, returning empty playgroups");
             return {};
         }
         const data = await fs.readFile(oldPlaygroupsPath, "utf-8");
@@ -705,18 +708,24 @@ export class DTS {
 
     private async getPlaygroup(playgroupName: string, pageId: number, glossary: Record<string, string>, oldPlaygroupsData: OldPlaygroups): Promise<Playgroup> {
         const wikiText = await this.getPageWikitext(pageId);
-        const { summary, image } = await this.parsePlaygroupWikitext(wikiText);
+        const { summary, image: wikiImageUrl } = await this.parsePlaygroupWikitext(wikiText);
         const glossaryDesc = glossary[playgroupName];
         const pgOldInfoEntry = Object.entries(oldPlaygroupsData).find(([_, v]) => v.name === playgroupName);
         const pgOldInfo = pgOldInfoEntry ? pgOldInfoEntry[1] : null;
 
         if (!glossaryDesc) {
             if (!pgOldInfo) {
-                console.warn(`No tooltip description found for playgroup "${playgroupName}" from either glossary or old playgroups data.`);
+                this.logger.warn(`No tooltip description found for playgroup "${playgroupName}" from either glossary or old playgroups data.`);
             } else {
                 console.info(`No glossary description found for playgroup "${playgroupName}", using old playgroups data description.`);
             }
         }
+
+        if (wikiImageUrl) {
+            this.logger.warn("Playgroup images not implemented.");
+        }
+
+        const image = this.apiBaseUrl + mugshotPlaceholderFilename;
 
         return {
             name: playgroupName,
@@ -752,56 +761,56 @@ export class DTS {
 
     //#region Public update functions
     async updateOutNowFerretsData(apiMinVersion: string): Promise<void> {
-        console.log("Updating out now data");
+        this.logger.log("Updating out now data");
     
-        console.log(`Getting ${outnowJsonFilename}`);
+        this.logger.log(`Getting ${outnowJsonFilename}`);
         let outnowJson: VersionedApiJson = await this.getVersionedApiJson(`${publicRoot}/${outnowJsonFilename}`);
-        console.log(`Updating ${outnowJsonFilename}`);
+        this.logger.log(`Updating ${outnowJsonFilename}`);
         const outnowData: OutNowFerretsData = {
             ferrets: [] //TODO: implement OutNow data population
         };
 
         for (const versionId in outnowJson) {
             if (versionId < apiMinVersion) {
-                console.log(`Deleting old version ${versionId} from ${outnowJsonFilename}`);
+                this.logger.log(`Deleting old version ${versionId} from ${outnowJsonFilename}`);
                 delete outnowJson[versionId];
             }
         }
 
         outnowJson[SCHEMA_VERSION_ID] = outnowData;
         await fs.writeFile(`${publicRoot}/${outnowJsonFilename}`, JSON.stringify(outnowJson, null, 2), "utf-8");
-        console.log(`Updated ${outnowJsonFilename}`);
+        this.logger.log(`Updated ${outnowJsonFilename}`);
 
-        console.log("Out now data update complete");
+        this.logger.log("Out now data update complete");
     }
 
     async updateFerretsData(apiMinVersion: string): Promise<void> {
-        console.log("Updating ferret data");
+        this.logger.log("Updating ferret data");
     
-        console.log("Fetching ferrets table");
+        this.logger.log("Fetching ferrets table");
         const ferretsTable = await this.getFerretsTable();
-        console.log(`Fetched ${ferretsTable.length} ferret entries from table`);
+        this.logger.log(`Fetched ${ferretsTable.length} ferret entries from table`);
 
-        console.log("Loading image metadata file");
+        this.logger.log("Loading image metadata file");
         const imageMeta = await this.getImageMetaFile();
-        console.log(`Loaded image metadata for ${Object.keys(imageMeta.mugshots).length} mugshots`);
+        this.logger.log(`Loaded image metadata for ${Object.keys(imageMeta.mugshots).length} mugshots`);
 
-        console.log("Fetching glossary");
+        this.logger.log("Fetching glossary");
         const glossary = await this.getGlossary();
-        console.log(`Fetched ${Object.keys(glossary).length} glossary entries`);
+        this.logger.log(`Fetched ${Object.keys(glossary).length} glossary entries`);
 
-        console.log("Fetching old playgroup info");
+        this.logger.log("Fetching old playgroup info");
         const oldPlaygroups = await this.loadOldPlaygroups();
-        console.log(`Fetched ${Object.keys(oldPlaygroups).length} old playgroup entries`);
+        this.logger.log(`Fetched ${Object.keys(oldPlaygroups).length} old playgroup entries`);
 
-        console.log("Fetching playgroups page list from wiki category");
+        this.logger.log("Fetching playgroups page list from wiki category");
         const playgroupList = await this.getPlaygroupsList();
-        console.log(`Found ${Object.keys(playgroupList).length} playgroups`);
+        this.logger.log(`Found ${Object.keys(playgroupList).length} playgroups`);
 
         let ferrets: Ferret[] = [];
         let playgroups: Record<string, Playgroup> = {};
         for (const tableEntry of ferretsTable/*.filter(f => f.name == "Onion")*/) { //TEMP: only first ferret for testing
-            console.log(`Processing ferret "${tableEntry.name}"`);
+            this.logger.log(`Processing ferret "${tableEntry.name}"`);
             let ferret: Ferret;
             try {
                 ferret = await this.updateFerret(tableEntry, ferretsTable, imageMeta);
@@ -810,7 +819,7 @@ export class DTS {
             }
             ferrets.push(ferret);
             if (!playgroups[ferret.playgroup]) {
-                console.log(`Processing playgroup "${ferret.playgroup}"`);
+                this.logger.log(`Processing playgroup "${ferret.playgroup}"`);
                 let newPlaygroup: Playgroup;
                 try {
                     const pageId = playgroupList[ferret.playgroup];
@@ -825,13 +834,13 @@ export class DTS {
             }
         }
         
-        console.log(`Getting ${ferretsJsonFilename}`);
+        this.logger.log(`Getting ${ferretsJsonFilename}`);
         let ferretsJson: VersionedApiJson = await this.getVersionedApiJson(`${publicRoot}/${ferretsJsonFilename}`);
 
-        console.log(`Getting ${ferretsMetaJsonFilename}`);
+        this.logger.log(`Getting ${ferretsMetaJsonFilename}`);
         let metaFile: ApiMeta = await this.getFerretsMetaFile();
 
-        console.log(`Updating ${ferretsJsonFilename}`);
+        this.logger.log(`Updating ${ferretsJsonFilename}`);
         const ferretsData: FerretsApiData = {
             ferrets: Object.fromEntries(ferrets.map(f => [f.name, f])),
             playgroups: playgroups
@@ -839,26 +848,26 @@ export class DTS {
 
         for (const versionId in ferretsJson) {
             if (versionId < apiMinVersion) {
-                console.log(`Deleting old version ${versionId} from ${ferretsJsonFilename}`);
+                this.logger.log(`Deleting old version ${versionId} from ${ferretsJsonFilename}`);
                 delete ferretsJson[versionId];
             }
         }
 
         ferretsJson[SCHEMA_VERSION_ID] = ferretsData;
         await this.saveFerretsJson(ferretsJson);
-        console.log(`Updated ${ferretsJsonFilename}`);
+        this.logger.log(`Updated ${ferretsJsonFilename}`);
         
-        console.log("Saving image metadata file");
+        this.logger.log("Saving image metadata file");
         await this.saveImageMetaFile(imageMeta);
-        console.log("Saved image metadata file");
+        this.logger.log("Saved image metadata file");
         
-        console.log(`Updating ${ferretsMetaJsonFilename}`);
+        this.logger.log(`Updating ${ferretsMetaJsonFilename}`);
         metaFile.apiVersion.current = SCHEMA_VERSION_ID;
         metaFile.lastUpdated = new Date().toISOString();
         await this.saveFerretsMetaFile(metaFile);
-        console.log(`Updated ${ferretsMetaJsonFilename}`);
+        this.logger.log(`Updated ${ferretsMetaJsonFilename}`);
 
-        console.log("Ferret data update complete");
+        this.logger.log("Ferret data update complete");
     }
     //#endregion
 }

@@ -28,6 +28,7 @@ if (!process.env.API_MIN_VERSION) {
 
 let _discordWebhookUrl = process.env.DISCORD_WEBHOOK_URL || null;
 let _discordWebhookInfoPrefix = process.env.DISCORD_WEBHOOK_INFO_PREAMBLE || "";
+let _discordWebhookWarnPrefix = process.env.DISCORD_WEBHOOK_WARN_PREAMBLE || "";
 let _discordWebhookErrorPrefix = process.env.DISCORD_WEBHOOK_ERROR_PREAMBLE || "";
 
 if (!_discordWebhookUrl || !_discordWebhookUrl.startsWith('http')) {
@@ -42,6 +43,7 @@ export const apiBaseUrl: string = process.env.API_BASE_URL;
 export const wikiPageRoot: string = process.env.WIKI_PAGE_ROOT;
 export const discordWebhookUrl: string | null = _discordWebhookUrl;
 export const discordWebhookInfoPrefix: string = _discordWebhookInfoPrefix;
+export const discordWebhookWarnPrefix: string = _discordWebhookWarnPrefix;
 export const discordWebhookErrorPrefix: string = _discordWebhookErrorPrefix;
 export const apiMinVersion: string = process.env.API_MIN_VERSION;
 
