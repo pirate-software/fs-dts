@@ -13,7 +13,7 @@ app.register(fastifyStatic, {
 });
 
 // Webhooks
-async function sendDiscordWebhook(message: string, isError: boolean = false) { {
+async function sendDiscordWebhook(message: string, isError: boolean = false) {
     if (!discordWebhookUrl) {
         console.log("Discord webhook URL not set, skipping webhook");
         return;
@@ -30,10 +30,9 @@ async function sendDiscordWebhook(message: string, isError: boolean = false) { {
     }).catch((err) => {
         console.error("Failed to send Discord webhook:", err);
     });
-} }
+}
 
-
-// Call updateData every UPDATE_INTERVAL_SECONDS
+// DTS instance
 const dts = new DTS(wikiApiBaseUrl, wikiPageRoot, apiBaseUrl);
 
 async function updateFerretData() {
@@ -46,6 +45,7 @@ async function updateFerretData() {
     }
 }
 
+// Run webserver
 async function run() {
     setInterval(() => {
         updateFerretData();

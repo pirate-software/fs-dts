@@ -140,7 +140,11 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
 
-## Custom Rules
+##################
+## Custom Rules ##
+##################
+
 /public/mugshots
 /public/*.json
-/private/
+/private/*
+!/private/oldplaygroups.json

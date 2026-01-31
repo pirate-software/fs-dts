@@ -1,2 +1,8 @@
+# Chat smells
+# The mods smell
+# Thor smells
+# You smell
+# hi eva
+
 User-agent: *
 Disallow: /

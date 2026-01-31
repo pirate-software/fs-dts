@@ -5,11 +5,10 @@ import { z } from "zod";
 import fs from "fs/promises";
 import { BirthdayString, PartialDateString, pathSchema } from "@pirate-software/fs-data/build/types";
 import { deepEqual } from "assert";
+import { queryObjects } from "v8";
+import { info } from "console";
 
-//#region Schemas
-const dateStringSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-const asciiSchema = z.string().regex(/^[\x20-\x7E]+$/);
-
+//#region MW API Query Schemas
 const apiResWikitextSchema = z.object({
     parse: z.object({
         wikitext: z.object({
@@ -35,6 +34,23 @@ const apiResMugshotQuerySchema = z.object({
     })
 });
 
+const apiResCategoryQuerySchema = z.object({
+    continue: z.object({
+        cmcontinue: z.string()
+    }).optional(),
+    query: z.object({
+        categorymembers: z.array(z.object({
+            pageid: z.number(),
+            title: z.string()
+        }))
+    })
+});
+//#endregion
+
+//#region Data Schemas
+const dateStringSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const asciiSchema = z.string().regex(/^[\x20-\x7E]+$/);
+
 const ferretTableEntrySchema = z.object({
     name: asciiSchema,
     gender: z.enum(["Male", "Female"]),
@@ -53,6 +69,12 @@ const imageMetadataFileSchema = z.object({
 });
 type ImageMetadataFile = z.infer<typeof imageMetadataFileSchema>;
 
+const oldPlaygroupsSchema = z.record(z.string(), z.object({
+    name: asciiSchema,
+    description: z.string()
+}));
+type OldPlaygroups = z.infer<typeof oldPlaygroupsSchema>;
+
 const versionedApiJsonSchema = z.record(z.string(), z.any());
 type VersionedApiJson = z.infer<typeof versionedApiJsonSchema>;
 //#endregion
@@ -68,75 +90,8 @@ const ferretsJsonFilename = "ferrets.json";
 const ferretsMetaJsonFilename = "ferrets.meta.json";
 const outnowJsonFilename = "outnow.json";
 const imageMetaFilename = "images.meta.json";
-
-// old data
-const old_playgroups = {
-  bepeepo: {
-    name: "BePeepo",
-    description: "Badger and Peepo's playgroup.",
-  },
-  fs: {
-    name: "F&S",
-    description: "Finch and Stinky's playgroup.",
-  },
-  genpop: {
-    name: "General Population",
-    description:
-      "The biggest playgroup of ferrets in the rescue consisting of 20+ ferrets.",
-  },
-  k: {
-    name: "K2",
-    description: "Koko (Nameko) and Kiki (Enoki)'s playgroup.",
-  },
-  kyosai: {
-    name: "Kyo & Sai",
-    description: "Kyo and Sai's playgroup.",
-  },
-  luno: {
-    name: "LuNo",
-    description: "Lulu and Noodle's playgroup.",
-  },
-  m: {
-    name: "M3",
-    description: "Big Mike, Maisy, and Milo's playgroup.",
-  },
-  ocarinaoftube: {
-    name: "Ocarina of Tube",
-    description:
-      "Group of seven Ferret sages who arrived together in January 2026.",
-  },
-  oldies: {
-    name: "Oldies",
-    description:
-      "Playgroup consisting of the older ferrets, being 5+ years old.",
-  },
-  pms: {
-    name: "PMS",
-    description: "Pepper, Moose, and Salt's playgroup.",
-  },
-  quarantine: {
-    name: "Quarantine",
-    description:
-      "A group for incoming ferrets that either need observation time for medical needs or have not yet been placed into a permanent group.",
-  },
-  rb: {
-    name: "R&B",
-    description: "Rusty and Bruce's playgroup.",
-  },
-  solo: {
-    name: "Solo",
-    description: "Ferrets who usually go out solo.",
-  },
-  valhalla: {
-    name: "Valhalla",
-    description: "Ferrets who have passed away.",
-  },
-  vons: {
-    name: "VONS",
-    description: "Vincent, Onion, Nacho, and Salsa's playgroup.",
-  },
-} as Record<string, { name: string; description: string }>;
-
+const oldPlaygroupsJsonFilename = "oldplaygroups.json";
+const mugshotPlaceholderFilename = "mugshot_placeholder.png";
 
 export class DTS {
     wikiApiBaseUrl: string;
@@ -157,7 +112,7 @@ export class DTS {
 
     //#region Static utility functions
     private static nameAsSlug(name: string): string {
-        return name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+        return name.toLowerCase().replace(/[^a-z0-9]+/gi, "-");
     }
 
     /**
@@ -167,7 +122,7 @@ export class DTS {
      */
     private static nameAsChatCommands(name: string): string[] {
         let commands: string[] = [];
-        let cleanName = name.toLowerCase().replace(/[^a-z0-9]+/g, "");
+        let cleanName = name.toLowerCase().replace(/[^a-z0-9]+/gi, "");
         commands.push(`show ${cleanName}`);
         if (cleanName.endsWith("s")) {
             commands.push(`show ${cleanName.slice(0, -1)}`);
@@ -328,20 +283,19 @@ export class DTS {
      * @returns processed string
      * @throws {Error} if unmatched brackets in wikitext
      */
-    private static processWikitext(s: string, isLinkableFerret: (name: string) => boolean): string {
+    private static processWikitext(s: string, includeLinks: boolean, isLinkableFerret: (name: string) => boolean = () => false): string {
         let subbed = s
-            .replace(/\[http[^\s]* ([^\]]+)\]/g, "$1") // Remove external links
-            .replace(/''+/g, "") // Remove italics/bold
-            .replace(/<ref.*?>.*?<\/ref>/g, "") // Remove references
-            .replace(/<.*?>/g, "") // Remove other HTML tags
-            .replace(/\{\{.*?\}\}/g, ""); // Remove templates
+            .replace(/\[http[^\s]* ([^\]]+)\]/gi, "$1") // Remove external links
+            .replace(/''+/gi, "") // Remove italics/bold
+            .replace(/<ref.*?>.*?<\/ref>/gi, "") // Remove references
+            .replace(/<.*?>/gi, "") // Remove other HTML tags
+            .replace(/\{\{.*?\}\}/gi, ""); // Remove templates
         
         // Process internal links
         const nests = DTS._getDoubleSquareBracketNests(subbed);
         
         let out = "";
         let lastIndex = 0;
-        console.log("Nests:", nests);
         for (const nest of nests) {
             out += subbed.slice(lastIndex, nest.open);
             const innerText = subbed.slice(nest.open+2, nest.close-1);
@@ -350,7 +304,7 @@ export class DTS {
                 if (linkMatch) { // In-wiki link
                     const linkTarget = linkMatch[1].trim();
                     const linkText = (linkMatch[2]) ? linkMatch[2].slice(1).trim() : linkTarget;
-                    if (isLinkableFerret(linkTarget)) {
+                    if (includeLinks && isLinkableFerret(linkTarget)) {
                         out += `[[${linkTarget}|${linkText}]]`;
                     } else { // Just keep text of non-ferret links
                         out += linkText;
@@ -385,17 +339,31 @@ export class DTS {
         }
     }
 
-    private async getPageWikitext(wikiPage: string): Promise<string> {
-        const params = {
+    private async getWikiAPIParsed<T>(params: Record<string, string>, schema: z.ZodType<T>): Promise<T> {
+        const res = await this.getWikiAPI(params);
+        let parsed: T;
+        try {
+            parsed = schema.parse(res);
+        } catch (e) {
+            console.error("Error parsing wiki API response with schema:", e);
+            throw e;
+        }
+        return parsed;
+    }
+
+    private async getPageWikitext(wikiPage: string | number): Promise<string> {
+        const params: Record<string, string> = {
             "action": "parse",
-            "page": wikiPage,
             "format": "json",
             "prop": "wikitext"
+        };
+        if (typeof wikiPage === "number") {
+            params["pageid"] = wikiPage.toString();
+        } else {
+            params["page"] = wikiPage;
         }
-        const res = await this.getWikiAPI(params);
-        const parsed = apiResWikitextSchema.parse(res);
-        const wikitext = parsed.parse.wikitext["*"];
-        return wikitext;
+        const parsed = await this.getWikiAPIParsed(params, apiResWikitextSchema);
+        return parsed.parse.wikitext["*"];
     }
 
     private async getCargoTable(table: string, fields: string[]): Promise<any[]> {
@@ -412,8 +380,7 @@ export class DTS {
         }
         do {
             params.offset = offset.toString();
-            const res = await this.getWikiAPI(params);
-            const parsed = apiResCargoQuerySchema.parse(res);
+            const parsed = await this.getWikiAPIParsed(params, apiResCargoQuerySchema);
             out = out.concat(parsed.cargoquery.map(item => item.title));
 
             if (parsed.cargoquery.length < maxPerQuery) {
@@ -438,8 +405,7 @@ export class DTS {
             "iiprop": "url|timestamp",
             "format": "json"
         }
-        const res = await this.getWikiAPI(params);
-        const parsed = apiResMugshotQuerySchema.parse(res);
+        const parsed = await this.getWikiAPIParsed(params, apiResMugshotQuerySchema);
         const pages = parsed.query.pages;
         for (const pageId in pages) {
             const page = pages[pageId];
@@ -451,6 +417,30 @@ export class DTS {
             }
         }
         return null;
+    }
+
+    private async getPlaygroupsList(): Promise<Record<string, number>> {
+        const playgroups: Record<string, number> = {};
+        let cmcontinue: string | null = null;
+        do {
+            const params: Record<string, string> = {
+                "action": "query",
+                "list": "categorymembers",
+                "cmtitle": "Category:Playgroups",
+                "cmtype": "page",
+                "cmlimit": "max",
+                "format": "json"
+            };
+            if (cmcontinue) {
+                params["cmcontinue"] = cmcontinue;
+            }
+            const parsed = await this.getWikiAPIParsed(params, apiResCategoryQuerySchema);
+            for (const member of parsed.query.categorymembers) {
+                playgroups[member.title] = member.pageid;
+            }
+            cmcontinue = parsed.continue?.cmcontinue || null;
+        } while (cmcontinue);
+        return playgroups;
     }
     //#endregion
 
@@ -536,34 +526,62 @@ export class DTS {
         await fs.writeFile(metaFilePath, JSON.stringify(data, null, 2), "utf-8");
     }
 
+    private async loadOldPlaygroups(): Promise<OldPlaygroups> {
+        const oldPlaygroupsPath = `${privateRoot}/${oldPlaygroupsJsonFilename}`;
+        if (!(await fs.stat(oldPlaygroupsPath).catch(() => false))) {
+            console.log("Old playgroups file not found, returning empty playgroups");
+            return {};
+        }
+        const data = await fs.readFile(oldPlaygroupsPath, "utf-8");
+        return oldPlaygroupsSchema.parse(JSON.parse(data));
+    }
     //#endregion
 
+    private async parseInfoboxContent(infoboxContent: string): Promise<Record<string, string>> {
+        const content = /\|[ \t]*(\w+)[ \t]*=[ \t]*(.*)/gi.exec(infoboxContent);
+        const contentRegexPlaintext = "Expects lines of text"
+
+        if (!content) {
+            throw new Error("Infobox content misformatted: " + infoboxContent);
+        }
+
+        if (content.length % 2 !== 1) {
+            throw new Error("Infobox content has uneven number of fields/values. Likely bad regex: " + infoboxContent);
+        }
+
+        const fields: Record<string, string> = {};
+        for (let i = 0; i < content.length; i+=2) {
+            const field = content[i];
+            const value = content[i + 1];
+            fields[field] = value;
+        }
+
+        return fields;
+    }
+
     private async parseFerretWikitext(wikitext: string, isLinkableFerret: (wikiPage: string) => boolean): Promise<{summary: string, lore: string, aliases: string[]}> {
-        const pageContentMatch = /^(?:<!--[\s\S]*?-->\s*)*\s*\{\{Infobox Ferret([\s\S]*?)\}\}([\s\S]*)\n\s*==\s*Lore\s*==([\s\S]*?)(\n\s*==|$)/.exec(wikitext);
+        const pageContentMatch = /^\s*(?:(?:<!--[\s\S]*?-->|{{stub}})\s*)*\s*\{\{Infobox Ferret([\s\S]*?)\}\}([\s\S]*)\n\s*==\s*Lore\s*==([\s\S]*?)(\n\s*==|$)/i.exec(wikitext);
+        const pageContentMatchRegexPlaintext = "Expects a page to start with any number of comments or '{{stub}}' (discarded), followed by an '{{Infobox Ferret ...}}', followed by some text (treated as summary), followed by a '== Lore ==' and some text, terminating at either the next '==' found or eof. (One match, case insensitive).";
+        
         if (!pageContentMatch) {
-            throw new Error("Infobox or lore section header misformatted.");
+            throw new Error("Failed regex parse: Infobox, summary, or lore section header misformatted. " + pageContentMatchRegexPlaintext);
         }
         
-        const infoboxContent = /\|[ \t]*(\w+)[ \t]*=[ \t]*(.*)/g.exec(pageContentMatch[1]);
-        if (!infoboxContent) {
-            throw new Error("Infobox content misformatted.");
-        }
+        const infoboxContent = await this.parseInfoboxContent(pageContentMatch[1].trim());
         
         let aliases: string[] = [];
-        for (let i = 0; i < infoboxContent.length; i+=2) {
-            const field = infoboxContent[i];
-            const value = infoboxContent[i + 1];
+        for (const field in infoboxContent) {
             if (/^(nickname|shayename)s?$/i.test(field)) {
-                aliases.push(...value.split(",").map(s => s.trim()).filter(s => s.length > 0));
+                aliases.push(...infoboxContent[field].split(",").map(s => s.trim()).filter(s => s.length > 0));
             }
         }
 
-        let summary = DTS.processWikitext(pageContentMatch[2].trim(), isLinkableFerret);
-        if (summary.length < 100 && summary.endsWith("lacking intro")) { // missing summary
+        let summary = DTS.processWikitext(pageContentMatch[2].trim(), true, isLinkableFerret);
+        if (!summary || summary.startsWith("Category:Ferrets lacking intro")) { // missing summary
             summary = "";
         }
 
-        const lore = DTS.processWikitext(pageContentMatch[3].trim(), isLinkableFerret);
+        const lore = DTS.processWikitext(pageContentMatch[3].trim(), true, isLinkableFerret);
 
         return { summary, lore, aliases };
     }
@@ -577,13 +595,13 @@ export class DTS {
         try {
             wikiText = await this.getPageWikitext(wikiPage);
         } catch (e) {
-            throw new Error(`Failed to get wikitext for ferret "${name}" (wiki page "${wikiPage}"): ${e}`);
+            throw new Error(`Failed to get wikitext (wiki page "${wikiPage}"): ${e}`);
         }
 
         try {
             ({ summary, lore, aliases } = await this.parseFerretWikitext(wikiText, (wikiPage: string) => ferretsTable.some(fe => DTS.nameAsWikiPageUrl(fe.name) === wikiPage)));
         } catch (e) {
-            throw new Error(`Failed to parse wikitext for ferret "${name}" (wiki page "${wikiPage}"): ${e}`);
+            throw new Error(`Failed to parse wikitext (wiki page "${wikiPage}"): ${e}`);
         }
 
         // Parse table entry
@@ -591,32 +609,37 @@ export class DTS {
         try {
             birth = DTS.toDOBString(tableEntry["birth date"]);
         } catch (e) {
-            throw new Error(`Failed to parse date of birth for ferret "${name}": ${e}`);
+            throw new Error(`Failed to parse date of birth: ${e}`);
         }
 
         try {
             birthday = DTS.toBirthdayString(tableEntry["birth date"]);
         } catch (e) {
-            throw new Error(`Failed to parse birthday for ferret "${name}": ${e}`);
+            throw new Error(`Failed to parse birthday: ${e}`);
         }
 
         try {
             arrival = DTS.toPartialDateString(tableEntry["arrival date"]);
         } catch (e) {
-            throw new Error(`Failed to parse arrival date for ferret "${name}": ${e}`);
+            throw new Error(`Failed to parse arrival date: ${e}`);
         }
 
         try {
             valhalla = DTS.toPartialDateString(tableEntry["valhalla date"]);
         } catch (e) {
-            throw new Error(`Failed to parse valhalla date for ferret "${name}": ${e}`);
+            throw new Error(`Failed to parse valhalla date: ${e}`);
+        }
+
+        // fill missing summaries
+        if (!summary) {
+            summary = `${name} ${valhalla ? "was" : "is"} a rescue ferret of Snails House.`
         }
 
         // Get mugshot
         let mugshotUrl: string;
         try {
             const ferretSlug = DTS.nameAsSlug(name);
-            const { url: mugshotWikiUrl, timestamp: mugshotTimestamp } = await this.getMugshotUrl(name) ?? { url: this.apiBaseUrl + "mugshot_placeholder.png", timestamp: "" };
+            const { url: mugshotWikiUrl, timestamp: mugshotTimestamp } = await this.getMugshotUrl(name) ?? { url: this.apiBaseUrl + mugshotPlaceholderFilename, timestamp: "" };
             if (!imageMeta.mugshots[ferretSlug] || imageMeta.mugshots[ferretSlug].lastUpdateTimestamp !== mugshotTimestamp) {
                 const mugshotPath = await this.saveMugshot(ferretSlug, mugshotWikiUrl);
                 imageMeta.mugshots[ferretSlug] = {
@@ -629,7 +652,7 @@ export class DTS {
             }
             mugshotUrl = this.apiBaseUrl + imageMeta.mugshots[ferretSlug].path.substring(publicRoot.length+1);
         } catch (e) {
-            throw new Error(`Failed to get mugshot for ferret "${name}": ${e}`);
+            throw new Error(`Failed to get mugshot: ${e}`);
         }
 
         return {
@@ -652,8 +675,84 @@ export class DTS {
         }
     }
 
+    private async parsePlaygroupWikitext(wikitext: string): Promise<{summary: string, image: string | null}> {
+        const pageContentMatch = /^\s*(?:(?:<!--[\s\S]*?-->|{{stub}})\s*)*\s*\{\{Infobox Playgroup([\s\S]*?)\}\}([\s\S]*?)(\n\s*==|$)/i.exec(wikitext);
+        const pageContentMatchRegexPlaintext = "Expects a page to start with any number of comments or '{{stub}}' (discarded), followed by an '{{Infobox Ferret ...}}', followed by some text (treated as summary), terminating at either the next '==' found or eof. (One match, case insensitive).";
+        
+        if (!pageContentMatch) {
+            throw new Error("Failed regex parse: Infobox misformatted. " + pageContentMatchRegexPlaintext);
+        }
+
+        const infoboxContent = await this.parseInfoboxContent(pageContentMatch[1].trim());
+        let image: string | null = null;
+
+        if (infoboxContent["image"]) {
+            try {
+                image = z.url().parse(infoboxContent["image"]);
+            } catch (e) {
+                throw new Error("Playgroup infobox image field is not a valid URL: " + infoboxContent["image"]);
+            }
+        }
+
+        let summary = DTS.processWikitext(pageContentMatch[2].trim(), false);
+
+        if (summary.endsWith("<!--")) { // for when following section is commented out
+            summary = summary.slice(0, -4).trim();
+        }
+
+        return { summary, image };
+    }
+
+    private async getPlaygroup(playgroupName: string, pageId: number, glossary: Record<string, string>, oldPlaygroupsData: OldPlaygroups): Promise<Playgroup> {
+        const wikiText = await this.getPageWikitext(pageId);
+        const { summary, image } = await this.parsePlaygroupWikitext(wikiText);
+        const glossaryDesc = glossary[playgroupName];
+        const pgOldInfoEntry = Object.entries(oldPlaygroupsData).find(([_, v]) => v.name === playgroupName);
+        const pgOldInfo = pgOldInfoEntry ? pgOldInfoEntry[1] : null;
+
+        if (!glossaryDesc) {
+            if (!pgOldInfo) {
+                console.warn(`No tooltip description found for playgroup "${playgroupName}" from either glossary or old playgroups data.`);
+            } else {
+                console.info(`No glossary description found for playgroup "${playgroupName}", using old playgroups data description.`);
+            }
+        }
+
+        return {
+            name: playgroupName,
+            tooltip: glossaryDesc ? glossaryDesc : (pgOldInfo ? pgOldInfo.description : "A group of ferrets who play together. (missing tooltip)"),
+            description: summary,
+            image: image
+        };
+    }
+
+    private async getGlossary(): Promise<Record<string, string>> {
+        const glossaryWikitext = await this.getPageWikitext("Glossary");
+        const glossaryTable = /=+\s*Terms\s*=+[^{=]*\{\|.*\s*(\|-[\s\S]*?)\s*(\|-[\s\S]*?)\s*\|\}/i.exec(glossaryWikitext);
+        if (!glossaryTable) {
+            throw new Error("Glossary table not found or misformatted.");
+        }
+        const headers = /^\|- *\n\! *term[^\n]*\n\! *definition[^\n]*\n/i.exec(glossaryTable[1]);
+        if (!headers) {
+            throw new Error("Glossary table headers misformatted. Expected 'Term' and 'Definition' as first words in each of the first two headers. Got: " + glossaryTable[1]);
+        }
+        const termRows = glossaryTable[2].split(/\|- *\n/).map(row => row.trim()).filter(row => row.length > 0);
+        let glossary: Record<string, string> = {};
+        for (const row of termRows) {
+            const cells = row.split(/\n\|/).map(cell => cell.trim());
+            if (cells.length < 2) {
+                throw new Error("Glossary table row misformatted, expected at least two cells. Got: " + row);
+            }
+            const term = DTS.processWikitext(cells[0], false);
+            const definition = DTS.processWikitext(cells[1], false);
+            glossary[term] = definition;
+        }
+        return glossary;
+    }
+
+    //#region Public update functions
     async updateOutNowFerretsData(apiMinVersion: string): Promise<void> {
-        console.log("Updating OutNow data");
+        console.log("Updating out now data");
     
         console.log(`Getting ${outnowJsonFilename}`);
         let outnowJson: VersionedApiJson = await this.getVersionedApiJson(`${publicRoot}/${outnowJsonFilename}`);
@@ -661,15 +760,23 @@ export class DTS {
         const outnowData: OutNowFerretsData = {
             ferrets: [] //TODO: implement OutNow data population
         };
+
+        for (const versionId in outnowJson) {
+            if (versionId < apiMinVersion) {
+                console.log(`Deleting old version ${versionId} from ${outnowJsonFilename}`);
+                delete outnowJson[versionId];
+            }
+        }
+
         outnowJson[SCHEMA_VERSION_ID] = outnowData;
         await fs.writeFile(`${publicRoot}/${outnowJsonFilename}`, JSON.stringify(outnowJson, null, 2), "utf-8");
         console.log(`Updated ${outnowJsonFilename}`);
 
-        console.log("OutNow data update complete");
+        console.log("Out now data update complete");
     }
 
     async updateFerretsData(apiMinVersion: string): Promise<void> {
-        console.log("Updating data");
+        console.log("Updating ferret data");
     
         console.log("Fetching ferrets table");
         const ferretsTable = await this.getFerretsTable();
@@ -679,20 +786,42 @@ export class DTS {
         const imageMeta = await this.getImageMetaFile();
         console.log(`Loaded image metadata for ${Object.keys(imageMeta.mugshots).length} mugshots`);
 
+        console.log("Fetching glossary");
+        const glossary = await this.getGlossary();
+        console.log(`Fetched ${Object.keys(glossary).length} glossary entries`);
+
+        console.log("Fetching old playgroup info");
+        const oldPlaygroups = await this.loadOldPlaygroups();
+        console.log(`Fetched ${Object.keys(oldPlaygroups).length} old playgroup entries`);
+
+        console.log("Fetching playgroups page list from wiki category");
+        const playgroupList = await this.getPlaygroupsList();
+        console.log(`Found ${Object.keys(playgroupList).length} playgroups`);
+
         let ferrets: Ferret[] = [];
         let playgroups: Record<string, Playgroup> = {};
-        for (const tableEntry of ferretsTable.filter(f => f.name == "Onion")) { //TEMP: only first ferret for testing
+        for (const tableEntry of ferretsTable/*.filter(f => f.name == "Onion")*/) { //TEMP: only first ferret for testing
             console.log(`Processing ferret "${tableEntry.name}"`);
-            const ferret = await this.updateFerret(tableEntry, ferretsTable, imageMeta);
+            let ferret: Ferret;
+            try {
+                ferret = await this.updateFerret(tableEntry, ferretsTable, imageMeta);
+            } catch (e) {
+                throw new Error(`Failed to process ferret "${tableEntry.name}": ${e}`);
+            }
             ferrets.push(ferret);
             if (!playgroups[ferret.playgroup]) {
-                const pgInfo = old_playgroups[ferret.playgroup];
-                playgroups[ferret.playgroup] = {
-                    name: pgInfo ? pgInfo.name : ferret.playgroup,
-                    tooltip: pgInfo ? pgInfo.description : "",
-                    description: "",
-                    image: null
+                console.log(`Processing playgroup "${ferret.playgroup}"`);
+                let newPlaygroup: Playgroup;
+                try {
+                    const pageId = playgroupList[ferret.playgroup];
+                    if (!pageId) {
+                        throw new Error(`Wiki page not found in Playgroup wiki page category.`);
+                    }
+                    newPlaygroup = await this.getPlaygroup(ferret.playgroup, pageId, glossary, oldPlaygroups);
+                } catch (e) {
+                    throw new Error(`Failed to process playgroup "${ferret.playgroup}": ${e}`);
                 }
+                playgroups[ferret.playgroup] = newPlaygroup;
             }
         }
         
@@ -707,6 +836,14 @@ export class DTS {
             ferrets: Object.fromEntries(ferrets.map(f => [f.name, f])),
             playgroups: playgroups
         }
+
+        for (const versionId in ferretsJson) {
+            if (versionId < apiMinVersion) {
+                console.log(`Deleting old version ${versionId} from ${ferretsJsonFilename}`);
+                delete ferretsJson[versionId];
+            }
+        }
+
         ferretsJson[SCHEMA_VERSION_ID] = ferretsData;
         await this.saveFerretsJson(ferretsJson);
         console.log(`Updated ${ferretsJsonFilename}`);
@@ -721,6 +858,7 @@ export class DTS {
         await this.saveFerretsMetaFile(metaFile);
         console.log(`Updated ${ferretsMetaJsonFilename}`);
 
-        console.log("Data update complete");
+        console.log("Ferret data update complete");
     }
+    //#endregion
 }
