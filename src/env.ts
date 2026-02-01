@@ -31,6 +31,17 @@ let _discordWebhookInfoPrefix = process.env.DISCORD_WEBHOOK_INFO_PREAMBLE || "";
 let _discordWebhookWarnPrefix = process.env.DISCORD_WEBHOOK_WARN_PREAMBLE || "";
 let _discordWebhookErrorPrefix = process.env.DISCORD_WEBHOOK_ERROR_PREAMBLE || "";
 
+let _consoleLogLevel = process.env.CONSOLE_LOG_LEVEL || "debug";
+let _webhookLogLevel = process.env.WEBHOOK_LOG_LEVEL || "info";
+
+let validLogLevels = ["debug", "info", "warn", "error"];
+if (!validLogLevels.includes(_consoleLogLevel.toLowerCase())) {
+    throw new Error(`Invalid CONSOLE_LOG_LEVEL "${_consoleLogLevel}"`);
+}
+if (!validLogLevels.includes(_webhookLogLevel.toLowerCase())) {
+    throw new Error(`Invalid WEBHOOK_LOG_LEVEL "${_webhookLogLevel}"`);
+}
+
 if (!_discordWebhookUrl || !_discordWebhookUrl.startsWith('http')) {
     console.log("Discord webhook not set")
     _discordWebhookUrl = null;
@@ -46,4 +57,5 @@ export const discordWebhookInfoPrefix: string = _discordWebhookInfoPrefix;
 export const discordWebhookWarnPrefix: string = _discordWebhookWarnPrefix;
 export const discordWebhookErrorPrefix: string = _discordWebhookErrorPrefix;
 export const apiMinVersion: string = process.env.API_MIN_VERSION;
-
+export const consoleLogLevel: string = _consoleLogLevel.toLowerCase();
+export const webhookLogLevel: string = _webhookLogLevel.toLowerCase();

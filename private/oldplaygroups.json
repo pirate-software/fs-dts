@@ -8,7 +8,7 @@
     "description": "Finch and Stinky's playgroup."
   },
   "genpop": {
-    "name": "General Population",
+    "name": "Gen. Pop.",
     "description":
       "The biggest playgroup of ferrets in the rescue consisting of 20+ ferrets."
   },
@@ -62,5 +62,21 @@
   "vons": {
     "name": "VONS",
     "description": "aaVincent, Onion, Nacho, and Salsa's playgroup."
+  },
+  "peanutandbagel": {
+    "name": "Peanut and Bagel",
+    "description": "Peanut and Bagel's playgroup."
+  },
+  "unassignedferrets": {
+    "name": "Unassigned Ferrets",
+    "description": "Ferrets who have not yet been assigned to a playgroup."
+  },
+  "finnandfelix": {
+    "name": "Finn and Felix",
+    "description": "Finn and Felix's playgroup."
+  },
+  "kyloroxy": {
+    "name": "Kylo & Roxy",
+    "description": "Kylo and Roxy's playgroup."
   }
 }

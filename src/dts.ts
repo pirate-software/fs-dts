@@ -1,13 +1,11 @@
-import { Ferret, ferretSchema } from "@pirate-software/fs-data/build/ferrets/core";
-import { Playgroup, playgroupSchema } from "@pirate-software/fs-data/build/ferrets/playgroups";
+import { Ferret } from "@pirate-software/fs-data/build/ferrets/core";
+import { Playgroup } from "@pirate-software/fs-data/build/ferrets/playgroups";
 import { SCHEMA_VERSION_ID, FerretsApiData, OutNowFerretsData, ApiMeta, apiMetaSchema } from "@pirate-software/fs-data/build/api";
 import { z } from "zod";
 import fs from "fs/promises";
-import { BirthdayString, PartialDateString, pathSchema } from "@pirate-software/fs-data/build/types";
-import { deepEqual } from "assert";
-import { queryObjects } from "v8";
-import { info } from "console";
-import { DiscordLogger, Logger } from "./logger";
+import { BirthdayString, PartialDateString } from "@pirate-software/fs-data/build/types";
+import { Logger } from "./logger";
+import sharp from "sharp";
 
 //#region MW API Query Schemas
 const apiResWikitextSchema = z.object({
@@ -165,7 +163,7 @@ export class DTS {
                 d = null;
                 break;
             default:
-                throw new Error(`Invalid date format: "${date}". Expected yyyy or yyyy-mm or yyyy-mm-dd.`);
+                throw Error(`Invalid date format: "${date}". Expected yyyy or yyyy-mm or yyyy-mm-dd.`);
         }
         return { year: y, month: m, day: d };
     }
@@ -193,10 +191,10 @@ export class DTS {
 
         // validation
         if (y < 2000) {
-            throw new Error(`Invalid year in date (< 2000) "${date}": "${y}"`);
+            throw Error(`Invalid year in date (< 2000) "${date}": "${y}"`);
         }
         if (m && !DTS._validateMonthDay(m, d)) {
-            throw new Error(`Invalid month/day in date "${date}": month="${m}", day="${d}"`);
+            throw Error(`Invalid month/day in date "${date}": month="${m}", day="${d}"`);
         }
 
         // out string
@@ -223,10 +221,10 @@ export class DTS {
         const { month: m, day: d } = DTS._toDateParts(date);
         
         if (!m || !d) {
-            throw new Error(`Invalid birthday date (missing month or day) "${date}": month="${m}", day="${d}"`);
+            throw Error(`Invalid birthday date (missing month or day) "${date}": month="${m}", day="${d}"`);
         }
         if (!DTS._validateMonthDay(m, d)) {
-            throw new Error(`Invalid month/day in birthday date "${date}": month="${m}", day="${d}"`);
+            throw Error(`Invalid month/day in birthday date "${date}": month="${m}", day="${d}"`);
         }
 
         const pad = DTS._padString;
@@ -266,7 +264,7 @@ export class DTS {
                 i++; // skip second [
             } else if (s[i] === "]" && s[i + 1] === "]") {
                 if (stack.length === 0) {
-                    throw new Error(`Unmatched closing brackets at position ${i} in string "${s}"`);
+                    throw Error(`Unmatched closing brackets at position ${i} in string "${s}"`);
                 }
                 const node = stack.pop()!;
                 node.close = i + 1;
@@ -274,7 +272,7 @@ export class DTS {
             }
         }
         if (stack.length > 0) {
-            throw new Error(`Unmatched opening brackets at position ${stack[0].open} in string "${s}"`);
+            throw Error(`Unmatched opening brackets at position ${stack[0].open} in string "${s}"`);
         }
         return roots;
     }
@@ -308,7 +306,7 @@ export class DTS {
                     const linkTarget = linkMatch[1].trim();
                     const linkText = (linkMatch[2]) ? linkMatch[2].slice(1).trim() : linkTarget;
                     if (includeLinks && isLinkableFerret(linkTarget)) {
-                        out += `[[${linkTarget}|${linkText}]]`;
+                        out += linkTarget === linkText ? `[[${linkTarget}]]` : `[[${linkTarget}|${linkText}]]`;
                     } else { // Just keep text of non-ferret links
                         out += linkText;
                     }
@@ -337,7 +335,7 @@ export class DTS {
         } catch (e) {
             this.logger.error("Error parsing JSON from wiki API response");
             this.logger.error("Response text:", await res.text());
-            this.logger.error("Error:", e);
+            this.logger.error(e);
             throw e;
         }
     }
@@ -348,7 +346,7 @@ export class DTS {
         try {
             parsed = schema.parse(res);
         } catch (e) {
-            this.logger.error("Error parsing wiki API response with schema:", e);
+            this.logger.error(`Failed to parse Wiki API response from params ${JSON.stringify(params)}: ${e}`);
             throw e;
         }
         return parsed;
@@ -453,6 +451,21 @@ export class DTS {
 
         const res = await fetch(url);
         const buffer = await res.arrayBuffer();
+
+        // crop, resize, and jpeg
+        const image = sharp(Buffer.from(buffer));
+        const metadata = await image.metadata();
+        const width = metadata.width || 512;
+        const height = metadata.height || 512;
+        const left = Math.floor(width * 0.15);
+        const top = Math.floor(height * 0.10);
+        const right = Math.floor(width * 0.85);
+        const bottom = Math.floor(height * 0.75);
+        const cropped = image.extract({ left: left, top: top, width: right - left, height: bottom - top });
+        const resized = cropped.resize(512, 512, { fit: 'inside', withoutEnlargement: true });
+        const finalBuffer = await resized.jpeg({ quality: 60 }).toBuffer();
+        
+
         // create public/mugshots directory if it doesn't exist
         if (!(await fs.stat(`${publicRoot}/mugshots`).catch(() => false)))
         {
@@ -461,7 +474,7 @@ export class DTS {
         // delete existing file if it exists
         await fs.rm(`${mugshotPath}`, { force: true });
         // write new file
-        await fs.writeFile(`${mugshotPath}`, Buffer.from(buffer));
+        await fs.writeFile(`${mugshotPath}`, finalBuffer);
         return mugshotPath;
     }
 
@@ -492,8 +505,8 @@ export class DTS {
             const data = await fs.readFile(path, "utf-8");
             parsed = versionedApiJsonSchema.parse(JSON.parse(data));
         } catch (e) {
-            console.info(`Error reading/parsing current ${ferretsJsonFilename} file:`, e);
-            console.info(`Assuming no existing ${ferretsJsonFilename} file.`);
+            this.logger.warn(`Error reading/parsing current ${ferretsJsonFilename} file:`, e);
+            this.logger.warn(`Assuming no existing ${ferretsJsonFilename} file.`);
             return {};
         }
         return parsed;
@@ -511,8 +524,8 @@ export class DTS {
             const data = await fs.readFile(metaFilePath, "utf-8");
             parsed = apiMetaSchema.parse(JSON.parse(data));
         } catch (e) {
-            console.info(`Error reading/parsing current ${ferretsMetaJsonFilename} file:`, e);
-            console.info(`Assuming no existing ${ferretsMetaJsonFilename} file.`);
+            this.logger.warn(`Error reading/parsing current ${ferretsMetaJsonFilename} file:`, e);
+            this.logger.warn(`Assuming no existing ${ferretsMetaJsonFilename} file.`);
             return {
                 apiVersion: {
                     min: SCHEMA_VERSION_ID,
@@ -532,7 +545,7 @@ export class DTS {
     private async loadOldPlaygroups(): Promise<OldPlaygroups> {
         const oldPlaygroupsPath = `${privateRoot}/${oldPlaygroupsJsonFilename}`;
         if (!(await fs.stat(oldPlaygroupsPath).catch(() => false))) {
-            this.logger.log("Old playgroups file not found, returning empty playgroups");
+            this.logger.warn("Old playgroups file not found, returning empty playgroups");
             return {};
         }
         const data = await fs.readFile(oldPlaygroupsPath, "utf-8");
@@ -541,21 +554,20 @@ export class DTS {
     //#endregion
 
     private async parseInfoboxContent(infoboxContent: string): Promise<Record<string, string>> {
-        const content = /\|[ \t]*(\w+)[ \t]*=[ \t]*(.*)/gi.exec(infoboxContent);
-        const contentRegexPlaintext = "Expects lines of text"
+        const content = Array.from(infoboxContent.matchAll(/^\|[ \t]*(\w+)[ \t]*=[ \t]*(.*)$/gim));
 
         if (!content) {
-            throw new Error("Infobox content misformatted: " + infoboxContent);
+            throw Error("Infobox has no content: " + infoboxContent);
         }
 
-        if (content.length % 2 !== 1) {
-            throw new Error("Infobox content has uneven number of fields/values. Likely bad regex: " + infoboxContent);
+        if (content.length !== infoboxContent.split("\n").length) {
+            throw Error("Infobox content has uneven number of fields/values. Likely bad regex: " + infoboxContent);
         }
 
         const fields: Record<string, string> = {};
-        for (let i = 0; i < content.length; i+=2) {
-            const field = content[i];
-            const value = content[i + 1];
+        for (const matches of content) {
+            const field = matches[1];
+            const value = matches[2];
             fields[field] = value;
         }
 
@@ -567,7 +579,7 @@ export class DTS {
         const pageContentMatchRegexPlaintext = "Expects a page to start with any number of comments or '{{stub}}' (discarded), followed by an '{{Infobox Ferret ...}}', followed by some text (treated as summary), followed by a '== Lore ==' and some text, terminating at either the next '==' found or eof. (One match, case insensitive).";
         
         if (!pageContentMatch) {
-            throw new Error("Failed regex parse: Infobox, summary, or lore section header misformatted. " + pageContentMatchRegexPlaintext);
+            throw Error("Failed regex parse: Infobox, summary, or lore section header misformatted. " + pageContentMatchRegexPlaintext);
         }
         
         const infoboxContent = await this.parseInfoboxContent(pageContentMatch[1].trim());
@@ -575,7 +587,7 @@ export class DTS {
         let aliases: string[] = [];
         for (const field in infoboxContent) {
             if (/^(nickname|shayename)s?$/i.test(field)) {
-                aliases.push(...infoboxContent[field].split(",").map(s => s.trim()).filter(s => s.length > 0));
+                aliases.push(...infoboxContent[field].split(/;|,|<br>/).map(s => s.trim()).filter(s => s.length > 0));
             }
         }
 
@@ -598,13 +610,13 @@ export class DTS {
         try {
             wikiText = await this.getPageWikitext(wikiPage);
         } catch (e) {
-            throw new Error(`Failed to get wikitext (wiki page "${wikiPage}"): ${e}`);
+            throw Error(`Failed to get wikitext (wiki page "${wikiPage}"): ${e}`);
         }
 
         try {
             ({ summary, lore, aliases } = await this.parseFerretWikitext(wikiText, (wikiPage: string) => ferretsTable.some(fe => DTS.nameAsWikiPageUrl(fe.name) === wikiPage)));
         } catch (e) {
-            throw new Error(`Failed to parse wikitext (wiki page "${wikiPage}"): ${e}`);
+            throw Error(`Failed to parse wikitext (wiki page "${wikiPage}"): ${e}`);
         }
 
         // Parse table entry
@@ -612,25 +624,25 @@ export class DTS {
         try {
             birth = DTS.toDOBString(tableEntry["birth date"]);
         } catch (e) {
-            throw new Error(`Failed to parse date of birth: ${e}`);
+            throw Error(`Failed to parse date of birth: ${e}`);
         }
 
         try {
             birthday = DTS.toBirthdayString(tableEntry["birth date"]);
         } catch (e) {
-            throw new Error(`Failed to parse birthday: ${e}`);
+            throw Error(`Failed to parse birthday: ${e}`);
         }
 
         try {
             arrival = DTS.toPartialDateString(tableEntry["arrival date"]);
         } catch (e) {
-            throw new Error(`Failed to parse arrival date: ${e}`);
+            throw Error(`Failed to parse arrival date: ${e}`);
         }
 
         try {
             valhalla = DTS.toPartialDateString(tableEntry["valhalla date"]);
         } catch (e) {
-            throw new Error(`Failed to parse valhalla date: ${e}`);
+            throw Error(`Failed to parse valhalla date: ${e}`);
         }
 
         // fill missing summaries
@@ -644,6 +656,7 @@ export class DTS {
             const ferretSlug = DTS.nameAsSlug(name);
             const { url: mugshotWikiUrl, timestamp: mugshotTimestamp } = await this.getMugshotUrl(name) ?? { url: this.apiBaseUrl + mugshotPlaceholderFilename, timestamp: "" };
             if (!imageMeta.mugshots[ferretSlug] || imageMeta.mugshots[ferretSlug].lastUpdateTimestamp !== mugshotTimestamp) {
+                this.logger.log(`Updating mugshot for "${name}"`);
                 const mugshotPath = await this.saveMugshot(ferretSlug, mugshotWikiUrl);
                 imageMeta.mugshots[ferretSlug] = {
                     path: mugshotPath,
@@ -651,11 +664,11 @@ export class DTS {
                 }
             }
             if (!imageMeta.mugshots[ferretSlug].path.startsWith(publicRoot)) {
-                throw new Error(`Mugshot path "${imageMeta.mugshots[ferretSlug].path}" is not in public root "${publicRoot}"`);
+                throw Error(`Mugshot path "${imageMeta.mugshots[ferretSlug].path}" is not in public root "${publicRoot}"`);
             }
             mugshotUrl = this.apiBaseUrl + imageMeta.mugshots[ferretSlug].path.substring(publicRoot.length+1);
         } catch (e) {
-            throw new Error(`Failed to get mugshot: ${e}`);
+            throw Error(`Failed to get mugshot: ${e}`);
         }
 
         return {
@@ -683,7 +696,7 @@ export class DTS {
         const pageContentMatchRegexPlaintext = "Expects a page to start with any number of comments or '{{stub}}' (discarded), followed by an '{{Infobox Ferret ...}}', followed by some text (treated as summary), terminating at either the next '==' found or eof. (One match, case insensitive).";
         
         if (!pageContentMatch) {
-            throw new Error("Failed regex parse: Infobox misformatted. " + pageContentMatchRegexPlaintext);
+            throw Error("Failed regex parse: Infobox misformatted. " + pageContentMatchRegexPlaintext);
         }
 
         const infoboxContent = await this.parseInfoboxContent(pageContentMatch[1].trim());
@@ -693,7 +706,7 @@ export class DTS {
             try {
                 image = z.url().parse(infoboxContent["image"]);
             } catch (e) {
-                throw new Error("Playgroup infobox image field is not a valid URL: " + infoboxContent["image"]);
+                throw Error("Playgroup infobox image field is not a valid URL: " + infoboxContent["image"]);
             }
         }
 
@@ -715,9 +728,9 @@ export class DTS {
 
         if (!glossaryDesc) {
             if (!pgOldInfo) {
-                this.logger.warn(`No tooltip description found for playgroup "${playgroupName}" from either glossary or old playgroups data.`);
+                this.logger.warn(`Playgroup "${playgroupName}" not found in glossary or old playgroups data.`);
             } else {
-                console.info(`No glossary description found for playgroup "${playgroupName}", using old playgroups data description.`);
+                this.logger.warn(`Playgroup "${playgroupName}" not found in glossary. Falling back to old playgroups data for tooltip.`);
             }
         }
 
@@ -729,7 +742,7 @@ export class DTS {
 
         return {
             name: playgroupName,
-            tooltip: glossaryDesc ? glossaryDesc : (pgOldInfo ? pgOldInfo.description : "A group of ferrets who play together. (missing tooltip)"),
+            tooltip: glossaryDesc ? glossaryDesc : (pgOldInfo ? pgOldInfo.description : "A group of ferrets who have playtimes together. (missing tooltip)"),
             description: summary,
             image: image
         };
@@ -739,22 +752,24 @@ export class DTS {
         const glossaryWikitext = await this.getPageWikitext("Glossary");
         const glossaryTable = /=+\s*Terms\s*=+[^{=]*\{\|.*\s*(\|-[\s\S]*?)\s*(\|-[\s\S]*?)\s*\|\}/i.exec(glossaryWikitext);
         if (!glossaryTable) {
-            throw new Error("Glossary table not found or misformatted.");
+            throw Error("Glossary table not found or misformatted.");
         }
         const headers = /^\|- *\n\! *term[^\n]*\n\! *definition[^\n]*\n/i.exec(glossaryTable[1]);
         if (!headers) {
-            throw new Error("Glossary table headers misformatted. Expected 'Term' and 'Definition' as first words in each of the first two headers. Got: " + glossaryTable[1]);
+            throw Error("Glossary table headers misformatted. Expected 'Term' and 'Definition' as first words in each of the first two headers. Got: " + glossaryTable[1]);
         }
         const termRows = glossaryTable[2].split(/\|- *\n/).map(row => row.trim()).filter(row => row.length > 0);
         let glossary: Record<string, string> = {};
         for (const row of termRows) {
-            const cells = row.split(/\n\|/).map(cell => cell.trim());
+            const cells = Array.from(row.matchAll(/^[ \t]*\|(.*)$/gm)).map(match => match[1].trim()) || [];
             if (cells.length < 2) {
-                throw new Error("Glossary table row misformatted, expected at least two cells. Got: " + row);
+                throw Error("Glossary table row misformatted, expected at least two cells. Got " + cells.length);
             }
-            const term = DTS.processWikitext(cells[0], false);
+            const terms = DTS.processWikitext(cells[0], false);
             const definition = DTS.processWikitext(cells[1], false);
-            glossary[term] = definition;
+            for (const term of terms.split("/").map(t => t.trim()).filter(t => t.length > 0)) {
+                glossary[term] = definition;
+            }
         }
         return glossary;
     }
@@ -763,23 +778,23 @@ export class DTS {
     async updateOutNowFerretsData(apiMinVersion: string): Promise<void> {
         this.logger.log("Updating out now data");
     
-        this.logger.log(`Getting ${outnowJsonFilename}`);
+        this.logger.debug(`Getting ${outnowJsonFilename}`);
         let outnowJson: VersionedApiJson = await this.getVersionedApiJson(`${publicRoot}/${outnowJsonFilename}`);
-        this.logger.log(`Updating ${outnowJsonFilename}`);
+        this.logger.debug(`Updating ${outnowJsonFilename}`);
         const outnowData: OutNowFerretsData = {
             ferrets: [] //TODO: implement OutNow data population
         };
 
         for (const versionId in outnowJson) {
             if (versionId < apiMinVersion) {
-                this.logger.log(`Deleting old version ${versionId} from ${outnowJsonFilename}`);
+                this.logger.debug(`Deleting old version ${versionId} from ${outnowJsonFilename}`);
                 delete outnowJson[versionId];
             }
         }
 
         outnowJson[SCHEMA_VERSION_ID] = outnowData;
         await fs.writeFile(`${publicRoot}/${outnowJsonFilename}`, JSON.stringify(outnowJson, null, 2), "utf-8");
-        this.logger.log(`Updated ${outnowJsonFilename}`);
+        this.logger.debug(`Updated ${outnowJsonFilename}`);
 
         this.logger.log("Out now data update complete");
     }
@@ -787,62 +802,63 @@ export class DTS {
     async updateFerretsData(apiMinVersion: string): Promise<void> {
         this.logger.log("Updating ferret data");
     
-        this.logger.log("Fetching ferrets table");
+        this.logger.debug("Fetching ferrets table");
         const ferretsTable = await this.getFerretsTable();
-        this.logger.log(`Fetched ${ferretsTable.length} ferret entries from table`);
+        this.logger.debug(`Fetched ${ferretsTable.length} ferret entries from table`);
 
-        this.logger.log("Loading image metadata file");
+        this.logger.debug("Loading image metadata file");
         const imageMeta = await this.getImageMetaFile();
-        this.logger.log(`Loaded image metadata for ${Object.keys(imageMeta.mugshots).length} mugshots`);
+        this.logger.debug(`Loaded image metadata for ${Object.keys(imageMeta.mugshots).length} mugshots`);
 
-        this.logger.log("Fetching glossary");
+        this.logger.debug("Fetching glossary");
         const glossary = await this.getGlossary();
-        this.logger.log(`Fetched ${Object.keys(glossary).length} glossary entries`);
+        this.logger.debug(`Fetched ${Object.keys(glossary).length} glossary entries`);
 
-        this.logger.log("Fetching old playgroup info");
+        this.logger.debug("Fetching old playgroup info");
         const oldPlaygroups = await this.loadOldPlaygroups();
-        this.logger.log(`Fetched ${Object.keys(oldPlaygroups).length} old playgroup entries`);
+        this.logger.debug(`Fetched ${Object.keys(oldPlaygroups).length} old playgroup entries`);
 
-        this.logger.log("Fetching playgroups page list from wiki category");
+        this.logger.debug("Fetching playgroups page list from wiki category");
         const playgroupList = await this.getPlaygroupsList();
-        this.logger.log(`Found ${Object.keys(playgroupList).length} playgroups`);
+        this.logger.debug(`Found ${Object.keys(playgroupList).length} playgroups`);
 
         let ferrets: Ferret[] = [];
         let playgroups: Record<string, Playgroup> = {};
-        for (const tableEntry of ferretsTable/*.filter(f => f.name == "Onion")*/) { //TEMP: only first ferret for testing
-            this.logger.log(`Processing ferret "${tableEntry.name}"`);
+        for (const tableEntry of ferretsTable/*.filter(f => f.name == "Milo")*/) { //TEMP: only first ferret for testing
+            this.logger.debug(`Processing ferret "${tableEntry.name}"`);
+            
             let ferret: Ferret;
             try {
                 ferret = await this.updateFerret(tableEntry, ferretsTable, imageMeta);
             } catch (e) {
-                throw new Error(`Failed to process ferret "${tableEntry.name}": ${e}`);
+                throw Error(`Failed to process ferret "${tableEntry.name}": ${e}`);
             }
             ferrets.push(ferret);
             if (!playgroups[ferret.playgroup]) {
-                this.logger.log(`Processing playgroup "${ferret.playgroup}"`);
+                this.logger.debug(`Processing playgroup "${ferret.playgroup}"`);
                 let newPlaygroup: Playgroup;
                 try {
                     const pageId = playgroupList[ferret.playgroup];
                     if (!pageId) {
-                        throw new Error(`Wiki page not found in Playgroup wiki page category.`);
+                        throw Error(`Wiki page not found in Playgroup wiki page category.`);
                     }
                     newPlaygroup = await this.getPlaygroup(ferret.playgroup, pageId, glossary, oldPlaygroups);
                 } catch (e) {
-                    throw new Error(`Failed to process playgroup "${ferret.playgroup}": ${e}`);
+                    throw Error(`Failed to process playgroup "${ferret.playgroup}": ${e}`);
                 }
                 playgroups[ferret.playgroup] = newPlaygroup;
             }
         }
         
-        this.logger.log(`Getting ${ferretsJsonFilename}`);
+        this.logger.debug(`Getting ${ferretsJsonFilename}`);
         let ferretsJson: VersionedApiJson = await this.getVersionedApiJson(`${publicRoot}/${ferretsJsonFilename}`);
 
-        this.logger.log(`Getting ${ferretsMetaJsonFilename}`);
+        this.logger.debug(`Getting ${ferretsMetaJsonFilename}`);
         let metaFile: ApiMeta = await this.getFerretsMetaFile();
 
-        this.logger.log(`Updating ${ferretsJsonFilename}`);
+        this.logger.debug(`Updating ${ferretsJsonFilename}`);
         const ferretsData: FerretsApiData = {
-            ferrets: Object.fromEntries(ferrets.map(f => [f.name, f])),
+            ferrets: Object.fromEntries(ferrets.map(f => [DTS.nameAsSlug(f.name), f])),
             playgroups: playgroups
         }
 
@@ -855,17 +871,17 @@ export class DTS {
 
         ferretsJson[SCHEMA_VERSION_ID] = ferretsData;
         await this.saveFerretsJson(ferretsJson);
-        this.logger.log(`Updated ${ferretsJsonFilename}`);
+        this.logger.debug(`Updated ${ferretsJsonFilename}`);
         
-        this.logger.log("Saving image metadata file");
+        this.logger.debug("Saving image metadata file");
         await this.saveImageMetaFile(imageMeta);
-        this.logger.log("Saved image metadata file");
+        this.logger.debug("Saved image metadata file");
         
-        this.logger.log(`Updating ${ferretsMetaJsonFilename}`);
+        this.logger.debug(`Updating ${ferretsMetaJsonFilename}`);
         metaFile.apiVersion.current = SCHEMA_VERSION_ID;
         metaFile.lastUpdated = new Date().toISOString();
         await this.saveFerretsMetaFile(metaFile);
-        this.logger.log(`Updated ${ferretsMetaJsonFilename}`);
+        this.logger.debug(`Updated ${ferretsMetaJsonFilename}`);
 
         this.logger.log("Ferret data update complete");
     }

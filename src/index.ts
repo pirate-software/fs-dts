@@ -11,9 +11,12 @@ import {
     discordWebhookUrl,
     discordWebhookInfoPrefix,
     discordWebhookWarnPrefix,
-    discordWebhookErrorPrefix,
-    apiMinVersion } from './env';
-import { DiscordLogger } from './logger';
+    discordWebhookErrorPrefix,    
+    apiMinVersion,
+    consoleLogLevel,
+    webhookLogLevel,
+} from './env';
+import { DiscordLogger, LogLevel } from './logger';
 
 const app = Fastify();
 
@@ -22,15 +25,23 @@ app.register(fastifyStatic, {
     prefix: '/',
 });
 
-const logger = new DiscordLogger(discordWebhookUrl, discordWebhookInfoPrefix, discordWebhookWarnPrefix, discordWebhookErrorPrefix);
+const logger = new DiscordLogger(
+    discordWebhookUrl,
+    discordWebhookInfoPrefix,
+    discordWebhookWarnPrefix,
+    discordWebhookErrorPrefix,
+    2000,
+    LogLevel[consoleLogLevel.toUpperCase() as keyof typeof LogLevel],
+    LogLevel[webhookLogLevel.toUpperCase() as keyof typeof LogLevel]
+);
 const dts = new DTS(logger, wikiApiBaseUrl, wikiPageRoot, apiBaseUrl);
 
 async function updateFerretData() {
-    await dts.updateFerretsData(apiMinVersion);
     try {
-        logger.log("Data update completed successfully.");
+        await dts.updateFerretsData(apiMinVersion);
     } catch (err) {
-        logger.error("Error updating data: " + err);
+        logger.error("Error updating ferret data. Update aborted.");
+        logger.error(err);
     }
 }
 
