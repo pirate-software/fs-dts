@@ -691,7 +691,7 @@ export class DTS {
         }
     }
 
-    private async parsePlaygroupWikitext(wikitext: string): Promise<{summary: string, image: string | null}> {
+    private async parsePlaygroupWikitext(wikitext: string): Promise<{tooltip: string | null, summary: string, image: string | null}> {
         const pageContentMatch = /^\s*(?:(?:<!--[\s\S]*?-->|{{stub}})\s*)*\s*\{\{Infobox Playgroup([\s\S]*?)\}\}([\s\S]*?)(\n\s*==|$)/i.exec(wikitext);
         const pageContentMatchRegexPlaintext = "Expects a page to start with any number of comments or '{{stub}}' (discarded), followed by an '{{Infobox Ferret ...}}', followed by some text (treated as summary), terminating at either the next '==' found or eof. (One match, case insensitive).";
         
@@ -710,18 +710,20 @@ export class DTS {
             }
         }
 
+        let tooltip: string | null = infoboxContent["short_intro"] ? infoboxContent["short_intro"] : null;
+
         let summary = DTS.processWikitext(pageContentMatch[2].trim(), false);
 
         if (summary.endsWith("<!--")) { // for when following section is commented out
             summary = summary.slice(0, -4).trim();
         }
 
-        return { summary, image };
+        return { tooltip, summary, image };
     }
 
     private async getPlaygroup(playgroupName: string, pageId: number, glossary: Record<string, string>, oldPlaygroupsData: OldPlaygroups): Promise<Playgroup> {
         const wikiText = await this.getPageWikitext(pageId);
-        const { summary, image: wikiImageUrl } = await this.parsePlaygroupWikitext(wikiText);
+        const { tooltip, summary, image: wikiImageUrl } = await this.parsePlaygroupWikitext(wikiText);
         const glossaryDesc = glossary[playgroupName];
         const pgOldInfoEntry = Object.entries(oldPlaygroupsData).find(([_, v]) => v.name === playgroupName);
         const pgOldInfo = pgOldInfoEntry ? pgOldInfoEntry[1] : null;
@@ -742,7 +744,7 @@ export class DTS {
 
         return {
             name: playgroupName,
-            tooltip: glossaryDesc ? glossaryDesc : (pgOldInfo ? pgOldInfo.description : "A group of ferrets who have playtimes together. (missing tooltip)"),
+            tooltip: tooltip ?? glossaryDesc ?? (pgOldInfo ? pgOldInfo.description : "A group of ferrets who have playtimes together. (missing tooltip)"),
             description: summary,
             image: image
         };
@@ -811,7 +813,13 @@ export class DTS {
         this.logger.debug(`Loaded image metadata for ${Object.keys(imageMeta.mugshots).length} mugshots`);
 
         this.logger.debug("Fetching glossary");
-        const glossary = await this.getGlossary();
+        let glossary: Record<string, string>;
+        try {
+            glossary = await this.getGlossary();
+        } catch (e) {
+            this.logger.warn("Failed to fetch glossary from wiki, proceeding with empty glossary:", e);
+            glossary = {};
+        }
         this.logger.debug(`Fetched ${Object.keys(glossary).length} glossary entries`);
 
         this.logger.debug("Fetching old playgroup info");
