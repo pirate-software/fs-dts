@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import path from 'path';
-import { DTS } from './dts';
+import { DTS } from './dts/dts';
 import {
     port,
     updateInterval,
@@ -17,6 +17,8 @@ import {
     webhookLogLevel,
 } from './env';
 import { DiscordLogger, LogLevel } from './logger';
+import { WikiFetcher } from './dts/wiki';
+import { FileHandler } from './dts/files';
 
 const app = Fastify();
 
@@ -34,7 +36,12 @@ const logger = new DiscordLogger(
     LogLevel[consoleLogLevel.toUpperCase() as keyof typeof LogLevel],
     LogLevel[webhookLogLevel.toUpperCase() as keyof typeof LogLevel]
 );
-const dts = new DTS(logger, wikiApiBaseUrl, wikiPageRoot, apiBaseUrl);
+const dts = new DTS(
+    logger,
+    new WikiFetcher(logger, wikiApiBaseUrl, wikiPageRoot),
+    new FileHandler(logger),
+    apiBaseUrl
+);
 
 async function updateFerretData() {
     try {
@@ -51,19 +58,19 @@ async function run() {
         updateFerretData();
     }, updateInterval);
     
-    logger.log("Performing initial ferret data update");
+    logger.info("Performing initial ferret data update");
     await updateFerretData();
 
-    logger.log("Performing initial OutNow data update");
+    logger.info("Performing initial OutNow data update");
     await dts.updateOutNowFerretsData(apiMinVersion);
 
-    logger.log(`Starting server on port ${port}`);
+    logger.info(`Starting server on port ${port}`);
     app.listen({ port }, (err, address) => {
         if (err) {
             logger.error(err);
             process.exit(1);
         }
-        logger.log(`Server listening at ${address}`);
+        logger.info(`Server listening at ${address}`);
     });
 }
 

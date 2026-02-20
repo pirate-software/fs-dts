@@ -3,7 +3,7 @@ import util from 'util';
 
 export abstract class Logger {
     abstract debug(...data: any[]): void;
-    abstract log(...data: any[]): void;
+    abstract info(...data: any[]): void;
     abstract warn(...data: any[]): void;
     abstract error(...data: any[]): void;
 }
@@ -72,7 +72,7 @@ export class DiscordLogger extends Logger {
         }
     }
 
-    log(...data: any[]) {
+    info(...data: any[]) {
         const timestamp = new Date().toISOString();
         const details = this.formatData(...data);
         const whMessage = `[INFO] ${details}`;
