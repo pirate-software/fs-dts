@@ -72,7 +72,7 @@ async function run() {
     await dts.updateOutNowFerretsData(apiMinVersion);
 
     logger.info(`Starting server on port ${port}`);
-    app.listen({ port }, (err, address) => {
+    app.listen({ port, host: '0.0.0.0' }, (err, address) => {
         if (err) {
             logger.error(err);
             process.exit(1);
