@@ -12,7 +12,7 @@ export const oldPlaygroupsSchema = z.record(z.string(), z.object({
 }));
 export type OldPlaygroups = z.infer<typeof oldPlaygroupsSchema>;
 
-// custom error type which can be given an existing error to preserve the stack trace and append additional information to the message
+// custom error type which can be given an existing error to preserve the stack trace and prepend additional information to the message
 export class DTSError extends Error {
     constructor(message: string, originalError?: Error) {
         super(`${message}${originalError ? `: ${originalError.message}` : ''}`);

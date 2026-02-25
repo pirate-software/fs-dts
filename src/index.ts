@@ -22,6 +22,13 @@ import { FileHandler } from './dts/files';
 
 const app = Fastify();
 
+app.addHook('onSend', (request, reply, payload, done) => {
+    reply.header('Access-Control-Allow-Origin', '*');
+    reply.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+    reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    done();
+});
+
 app.register(fastifyStatic, {
     root: path.join(__dirname, '../public'),
     prefix: '/',
@@ -59,7 +66,7 @@ async function run() {
     }, updateInterval);
     
     logger.info("Performing initial ferret data update");
-    await updateFerretData();
+    // await updateFerretData();
 
     logger.info("Performing initial OutNow data update");
     await dts.updateOutNowFerretsData(apiMinVersion);

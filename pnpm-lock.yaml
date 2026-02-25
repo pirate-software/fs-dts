@@ -12,8 +12,8 @@ importers:
         specifier: ^9.0.0
         version: 9.0.0
       '@pirate-software/fs-data':
-        specifier: link:..\fs-data
-        version: link:../fs-data
+        specifier: ^1.0.0
+        version: 1.0.0(tailwindcss@4.2.1)(zod@4.3.6)
       dotenv:
         specifier: ^17.2.3
         version: 17.2.3
@@ -253,6 +253,12 @@ packages:
 
   '@pinojs/redact@0.4.0':
     resolution: {integrity: sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg==}
+
+  '@pirate-software/fs-data@1.0.0':
+    resolution: {integrity: sha512-tKkfXihRG14DpjzRudlOv+8iZEGipEwss7HGW/Gu85z2KkuN3ASC6EaFY3wjH/IaLwpqWooDJDctzI4v0fXp2w==, tarball: https://npm.pkg.github.com/download/@pirate-software/fs-data/1.0.0/dff6310ab125aac6f79cecf1b32da9f2b6193d6d}
+    peerDependencies:
+      tailwindcss: ^4.0.0
+      zod: ^4.0.0
 
   '@tsconfig/node10@1.0.12':
     resolution: {integrity: sha512-UCYBaeFvM11aU2y3YPZ//O5Rhj+xKyzy7mvcIoAjASbigy8mHMryP5cK7dgjlz2hWxh1g5pLw084E0a/wlUSFQ==}
@@ -594,6 +600,9 @@ packages:
     resolution: {integrity: sha512-QjVjwdXIt408MIiAqCX4oUKsgU2EqAGzs2Ppkm4aQYbjm+ZEWEcW4SfFNTr4uMNZma0ey4f5lgLrkB0aX0QMow==}
     engines: {node: '>=4'}
 
+  tailwindcss@4.2.1:
+    resolution: {integrity: sha512-/tBrSQ36vCleJkAOsy9kbNTgaxvGbyOamC30PRePTQe/o1MFwEKHQk4Cn7BNGaPtjp+PuUrByJehM1hgxfq4sw==}
+
   thread-stream@4.0.0:
     resolution: {integrity: sha512-4iMVL6HAINXWf1ZKZjIPcz5wYaOdPhtO8ATvZ+Xqp3BTdaqtAwQkNmKORqcIo5YkQqGXq5cwfswDwMqqQNrpJA==}
     engines: {node: '>=20'}
@@ -819,6 +828,11 @@ snapshots:
   '@lukeed/ms@2.0.2': {}
 
   '@pinojs/redact@0.4.0': {}
+
+  '@pirate-software/fs-data@1.0.0(tailwindcss@4.2.1)(zod@4.3.6)':
+    dependencies:
+      tailwindcss: 4.2.1
+      zod: 4.3.6
 
   '@tsconfig/node10@1.0.12': {}
 
@@ -1166,6 +1180,8 @@ snapshots:
   supports-color@5.5.0:
     dependencies:
       has-flag: 3.0.0
+
+  tailwindcss@4.2.1: {}
 
   thread-stream@4.0.0:
     dependencies:

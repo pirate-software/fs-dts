@@ -290,6 +290,30 @@ export class DTS {
                     oldData[item].mugshot.src = newData.ferrets[item].mugshot;
                 }
             }
+
+            // this.logger.info("Applying v1 valid playgroups");
+            // const validPlaygroups = ["bepeepo",
+            //     "fs",
+            //     "genpop",
+            //     "kyosai",
+            //     "k",
+            //     "luno",
+            //     "m",
+            //     "ocarinaoftube",
+            //     "oldies",
+            //     "pms",
+            //     "rb",
+            //     "solo",
+            //     "valhalla",
+            //     "vons"
+            // ];
+
+            // for (const item in oldData) {
+            //     if (oldData[item]["playgroup"] && !validPlaygroups.includes(oldData[item].playgroup)) {
+            //         this.logger.info(`Fixing invalid playgroup "${oldData[item].playgroup}" for ferret "${item}"`);
+            //         oldData[item].playgroup = "solo";
+            //     }
+            // }
         } else {      
             this.logger.info(`No fixes needed for old data with version id ${versionId}`);
         }
