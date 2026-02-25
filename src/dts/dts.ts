@@ -314,7 +314,7 @@ export class DTS {
             //         oldData[item].playgroup = "solo";
             //     }
             // }
-        } else {      
+        } else {
             this.logger.info(`No fixes needed for old data with version id ${versionId}`);
         }
         return oldData;
