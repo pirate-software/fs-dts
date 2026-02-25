@@ -156,7 +156,8 @@ export class WikiFetcher {
      * @throws {Error} if JSON parsing fails
      */
     private async getWikiAPI(params: Record<string, string>): Promise<any> {
-        const res: Response = await fetch(this.wikiApiBaseUrl + "?" + new URLSearchParams(params).toString());
+        const url = this.wikiApiBaseUrl + "?" + new URLSearchParams(params).toString();
+        const res: Response = await fetch(url);
         let text: string = "(no response read)";
         try {
             text = await res.text();
@@ -164,6 +165,9 @@ export class WikiFetcher {
             return json;
         } catch (e) {
             this.logger.error("Error parsing JSON from wiki API response");
+            this.logger.error("Request url:", url);
+            this.logger.error("Params:", params);
+            this.logger.error("Response status:", res.status);
             this.logger.error("Response text:", text);
             this.logger.error(e);
             throw e;
