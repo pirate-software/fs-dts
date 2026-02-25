@@ -66,7 +66,7 @@ async function run() {
     }, updateInterval);
     
     logger.info("Performing initial ferret data update");
-    // await updateFerretData();
+    await updateFerretData();
 
     logger.info("Performing initial OutNow data update");
     await dts.updateOutNowFerretsData(apiMinVersion);
