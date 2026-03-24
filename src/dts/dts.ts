@@ -1,4 +1,4 @@
-import { Ferret } from "@pirate-software/fs-data/build/ferrets/core";
+import { Ferret } from "@pirate-software/fs-data/build/ferrets/ferrets";
 import { Playgroup } from "@pirate-software/fs-data/build/ferrets/playgroups";
 import { SCHEMA_VERSION_ID, FerretsApiData, OutNowFerretsData, ApiMeta, apiMetaSchema } from "@pirate-software/fs-data/build/api";
 import { BirthdayString, PartialDateString } from "@pirate-software/fs-data/build/types";
@@ -274,6 +274,7 @@ export class DTS {
 
         return {
             name: playgroupName,
+            wikipage: DTS.nameAsWikiPageUrl(playgroupName),
             tooltip: tooltip ?? glossaryDesc ?? (pgOldInfo ? pgOldInfo.description : "A group of ferrets who have playtimes together. (missing tooltip)"),
             description: summary,
             image: image
@@ -439,6 +440,7 @@ export class DTS {
         
         this.logger.debug(`Updating ferrets meta file`);
         metaFile.apiVersion.current = SCHEMA_VERSION_ID;
+        metaFile.apiVersion.min = apiMinVersion;
         metaFile.lastUpdated = new Date().toISOString();
         await this.files.saveFerretsMetaFile(metaFile);
         this.logger.debug(`Updated ferrets meta file`);

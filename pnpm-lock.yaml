@@ -12,8 +12,8 @@ importers:
         specifier: ^9.0.0
         version: 9.0.0
       '@pirate-software/fs-data':
-        specifier: ^1.0.0
-        version: 1.0.0(tailwindcss@4.2.1)(zod@4.3.6)
+        specifier: ^1.1.0
+        version: 1.1.0(tailwindcss@4.2.1)(zod@4.3.6)
       dotenv:
         specifier: ^17.2.3
         version: 17.2.3
@@ -254,8 +254,8 @@ packages:
   '@pinojs/redact@0.4.0':
     resolution: {integrity: sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg==}
 
-  '@pirate-software/fs-data@1.0.0':
-    resolution: {integrity: sha512-tKkfXihRG14DpjzRudlOv+8iZEGipEwss7HGW/Gu85z2KkuN3ASC6EaFY3wjH/IaLwpqWooDJDctzI4v0fXp2w==, tarball: https://npm.pkg.github.com/download/@pirate-software/fs-data/1.0.0/dff6310ab125aac6f79cecf1b32da9f2b6193d6d}
+  '@pirate-software/fs-data@1.1.0':
+    resolution: {integrity: sha512-AWII4thNNfyHGtaTVChdVU7T+RAXO7g4+70DEXmZHGYbQYIN/K7yyMQD6hcaRwy3ApvHOE8x5+hfom3XVwBrHg==, tarball: https://npm.pkg.github.com/download/@pirate-software/fs-data/1.1.0/dbad8974531e66acb61e330709df3ad74b30c214}
     peerDependencies:
       tailwindcss: ^4.0.0
       zod: ^4.0.0
@@ -829,7 +829,7 @@ snapshots:
 
   '@pinojs/redact@0.4.0': {}
 
-  '@pirate-software/fs-data@1.0.0(tailwindcss@4.2.1)(zod@4.3.6)':
+  '@pirate-software/fs-data@1.1.0(tailwindcss@4.2.1)(zod@4.3.6)':
     dependencies:
       tailwindcss: 4.2.1
       zod: 4.3.6

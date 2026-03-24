@@ -320,6 +320,14 @@ export class WikiFetcher {
                 continue;
             }
 
+            // gender fuzzy match
+            if (typeof row.gender === "string") {
+                row.gender = row
+                    .gender.toLowerCase()
+                    .trim();
+                row.gender = row.gender.charAt(0).toUpperCase() + row.gender.slice(1);
+            }
+
             let parsed: FerretTableEntry;
 
             try {
