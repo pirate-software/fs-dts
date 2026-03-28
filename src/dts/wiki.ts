@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Logger } from "../logger";
 import { asciiSchema, dateStringSchema, DTSError } from "../util";
 import { VersionedApiJson } from "../util";
+import { cfAccessClientId, cfAccessClientSecret } from "../env";
 
 //#region Query Schemas
 const apiResWikitextSchema = z.object({
@@ -157,7 +158,14 @@ export class WikiFetcher {
      */
     private async getWikiAPI(params: Record<string, string>): Promise<any> {
         const url = this.wikiApiBaseUrl + "?" + new URLSearchParams(params).toString();
-        const res: Response = await fetch(url);
+        // Import env for Cloudflare Access tokens
+        // (import at top if not already)
+        let headers: Record<string, string> = {};
+        if (cfAccessClientId && cfAccessClientSecret) {
+            headers["CF-Access-Client-Id"] = cfAccessClientId;
+            headers["CF-Access-Client-Secret"] = cfAccessClientSecret;
+        }
+        const res: Response = await fetch(url, { headers });
         let text: string = "(no response read)";
         try {
             text = await res.text();
@@ -191,10 +199,6 @@ export class WikiFetcher {
 
         if (!content) {
             throw new DTSError("Infobox has no content: " + infoboxContent);
-        }
-
-        if (content.length !== infoboxContent.split("\n").length) {
-            throw new DTSError("Infobox content has uneven number of fields/values. Likely bad regex: " + infoboxContent);
         }
 
         const fields: Record<string, string> = {};

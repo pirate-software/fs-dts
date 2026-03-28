@@ -42,6 +42,15 @@ if (!validLogLevels.includes(_webhookLogLevel.toLowerCase())) {
     throw new Error(`Invalid WEBHOOK_LOG_LEVEL "${_webhookLogLevel}"`);
 }
 
+// Cloudflare Access tokens
+const _cfAccessClientId = process.env.CF_ACCESS_CLIENT_ID || null;
+const _cfAccessClientSecret = process.env.CF_ACCESS_CLIENT_SECRET || null;
+
+// Optionally, validate if both are set or both are null
+if ((_cfAccessClientId && !_cfAccessClientSecret) || (!_cfAccessClientId && _cfAccessClientSecret)) {
+    throw new Error('Both CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET must be set together for Cloudflare Access.');
+}
+
 if (!_discordWebhookUrl || !_discordWebhookUrl.startsWith('http')) {
     console.log("Discord webhook not set")
     _discordWebhookUrl = null;
@@ -59,3 +68,6 @@ export const discordWebhookErrorPrefix: string = _discordWebhookErrorPrefix;
 export const apiMinVersion: string = process.env.API_MIN_VERSION;
 export const consoleLogLevel: string = _consoleLogLevel.toLowerCase();
 export const webhookLogLevel: string = _webhookLogLevel.toLowerCase();
+
+export const cfAccessClientId: string | null = _cfAccessClientId;
+export const cfAccessClientSecret: string | null = _cfAccessClientSecret;
