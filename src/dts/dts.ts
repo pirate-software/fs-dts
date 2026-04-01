@@ -277,7 +277,8 @@ export class DTS {
             wikipage: DTS.nameAsWikiPageUrl(playgroupName),
             tooltip: tooltip ?? glossaryDesc ?? (pgOldInfo ? pgOldInfo.description : "A group of ferrets who have playtimes together. (missing tooltip)"),
             description: summary,
-            image: image
+            image: image,
+            commands: [`show ${playgroupName.toLowerCase()}`]
         };
     }
 
