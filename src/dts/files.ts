@@ -29,8 +29,8 @@ export class FileHandler {
     }
 
     //#region File Handling
-    public async saveMugshot(ferretSlug: string, url: string): Promise<string> {
-        const mugshotPath = `${publicRoot}/mugshots/${ferretSlug}.png`;
+    public async saveThumbnail(ferretSlug: string, url: string, type: "mugshots" | "playgroups"): Promise<string> {
+        const mugshotPath = `${publicRoot}/${type}/${ferretSlug}.png`;
 
         const res = await fetch(url);
         const buffer = await res.arrayBuffer();
@@ -48,10 +48,10 @@ export class FileHandler {
         const resized = cropped.resize(512, 512, { fit: 'inside', withoutEnlargement: true });
         const finalBuffer = await resized.jpeg({ quality: 80 }).toBuffer();
 
-        // create public/mugshots directory if it doesn't exist
-        if (!(await fs.stat(`${publicRoot}/mugshots`).catch(() => false)))
+        // create public/{type} directory if it doesn't exist
+        if (!(await fs.stat(`${publicRoot}/${type}`).catch(() => false)))
         {
-            await fs.mkdir(`${publicRoot}/mugshots`, { recursive: false });
+            await fs.mkdir(`${publicRoot}/${type}`, { recursive: false });
         }
         // delete existing file if it exists
         await fs.rm(`${mugshotPath}`, { force: true });

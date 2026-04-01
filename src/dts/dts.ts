@@ -242,7 +242,7 @@ export class DTS {
         } else {
             if (!imageMeta.mugshots[ferretSlug] || imageMeta.mugshots[ferretSlug].lastUpdateTimestamp !== mugshotTimestamp) {
                 this.logger.info(`Updating mugshot for "${name}"`);
-                const mugshotPath = await this.files.saveMugshot(ferretSlug, mugshotWikiUrl);
+                const mugshotPath = await this.files.saveThumbnail(ferretSlug, mugshotWikiUrl, "mugshots");
                 imageMeta.mugshots[ferretSlug] = {
                     path: mugshotPath,
                     lastUpdateTimestamp: mugshotTimestamp ?? new Date(2000, 0, 1).toISOString()
@@ -266,11 +266,16 @@ export class DTS {
             this.logger.warn(`Tooltip missing for playgroup "${playgroupName}". Using glossary -> old info -> placeholder fallback chain.`);
         }
 
+        let image = this.apiBaseUrl + mugshotPlaceholderFilename;
         if (wikiImageUrl) {
-            this.logger.warn("Playgroup images not implemented.");
+            this.logger.debug(`Saving image for playgroup "${playgroupName}".`);
+            image = await this.files.saveThumbnail(playgroupName.toLowerCase(), wikiImageUrl, "playgroups").catch(e => {
+                this.logger.warn(`Failed to save playgroup image from wiki for playgroup "${playgroupName}". Using placeholder image. Error:`, e);
+                return image;
+            });
+        } else {
+            this.logger.info(`Image missing for playgroup "${playgroupName}". Using placeholder image.`);
         }
-
-        const image = this.apiBaseUrl + mugshotPlaceholderFilename;
 
         return {
             name: playgroupName,
