@@ -40,11 +40,17 @@ export class FileHandler {
         const metadata = await image.metadata();
         const width = metadata.width || 512;
         const height = metadata.height || 512;
-        const left = Math.floor(width * 0.15);
-        const top = Math.floor(height * 0.10);
-        const right = Math.floor(width * 0.85);
-        const bottom = Math.floor(height * 0.75);
-        const cropped = image.extract({ left: left, top: top, width: right - left, height: bottom - top });
+
+        let cropped: sharp.Sharp;
+        if (type === "playgroups") {
+            cropped = image.extract({ left: 0, top: 0, width: width, height: height });
+        } else {
+            const left = Math.floor(width * 0.15);
+            const top = Math.floor(height * 0.10);
+            const right = Math.floor(width * 0.85);
+            const bottom = Math.floor(height * 0.75);
+            cropped = image.extract({ left: left, top: top, width: right - left, height: bottom - top });
+        }
         const resized = cropped.resize(512, 512, { fit: 'inside', withoutEnlargement: true });
         const finalBuffer = await resized.jpeg({ quality: 80 }).toBuffer();
 
