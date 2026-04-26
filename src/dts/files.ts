@@ -29,7 +29,7 @@ export class FileHandler {
     }
 
     //#region File Handling
-    public async saveThumbnail(ferretSlug: string, url: string, type: "mugshots" | "playgroups"): Promise<string> {
+    public async saveThumbnail(ferretSlug: string, url: string, type: "mugshots" | "playgroups", hasFrame: boolean = true): Promise<string> {
         const mugshotPath = `${publicRoot}/${type}/${ferretSlug}.png`;
 
         const res = await fetch(url);
@@ -42,14 +42,14 @@ export class FileHandler {
         const height = metadata.height || 512;
 
         let cropped: sharp.Sharp;
-        if (type === "playgroups") {
-            cropped = image.extract({ left: 0, top: 0, width: width, height: height });
-        } else {
+        if (hasFrame) {
             const left = Math.floor(width * 0.15);
             const top = Math.floor(height * 0.10);
             const right = Math.floor(width * 0.85);
             const bottom = Math.floor(height * 0.75);
             cropped = image.extract({ left: left, top: top, width: right - left, height: bottom - top });
+        } else {
+            cropped = image.extract({ left: 0, top: 0, width: width, height: height });
         }
         const resized = cropped.resize(512, 512, { fit: 'inside', withoutEnlargement: true });
         const finalBuffer = await resized.jpeg({ quality: 80 }).toBuffer();
