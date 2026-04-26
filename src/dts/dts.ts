@@ -283,6 +283,15 @@ export class DTS {
             this.logger.info(`Image missing for playgroup "${playgroupName}". Using placeholder image.`);
         }
 
+        if (!image) {
+            image = this.apiBaseUrl + mugshotPlaceholderFilename;
+        } else if (!image.startsWith("http")) {
+            if (!image.startsWith(publicRoot)) {
+                throw new DTSError(`Playgroup image path "${image}" is not in public root "${publicRoot}"`);
+            }
+            image = this.apiBaseUrl + image.substring(publicRoot.length + 1);
+        }
+
         return {
             name: playgroupName,
             wikipage: DTS.nameAsWikiPageUrl(playgroupName),
@@ -395,7 +404,7 @@ export class DTS {
 
         let ferrets: Ferret[] = [];
         let playgroups: Record<string, Playgroup> = {};
-        for (const tableEntry of ferretsTable/*.filter(f => f.name == "Milo")*/) { //TEMP: only first ferret for testing
+        for (const tableEntry of ferretsTable) {
             this.logger.debug(`Processing ferret "${tableEntry.name}"`);
             
             let ferret: Ferret;
