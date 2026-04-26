@@ -243,7 +243,7 @@ export class DTS {
             mugshotTimestamp = mugshotData.timestamp;
         }
         if (!mugshotWikiUrl) {
-            this.logger.warn(`Mugshot not found for "${name}" (wiki page "${wikiPage}")`);
+            this.logger.info(`Mugshot not found for "${name}" (wiki page "${wikiPage}")`);
             mugshotUrl = this.apiBaseUrl + mugshotPlaceholderFilename;
         } else {
             if (!imageMeta.mugshots[ferretSlug] || imageMeta.mugshots[ferretSlug].lastUpdateTimestamp !== mugshotTimestamp) {
