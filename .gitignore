@@ -145,6 +145,7 @@ vite.config.ts.timestamp-*
 ##################
 
 /public/mugshots
+/public/playgroups
 /public/*.json
 /private/*
 !/private/oldplaygroups.json

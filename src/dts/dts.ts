@@ -231,7 +231,13 @@ export class DTS {
         const ferretSlug = DTS.nameAsSlug(name);
         let mugshotWikiUrl: string | null = null;
         let mugshotTimestamp: string | null = null;
-        const mugshotData = await this.wiki.getMugshotUrl(name);
+        let mugshotData: {url: string, timestamp: string} | null = null;
+        try {
+            mugshotData = await this.wiki.getMugshotUrl(name);
+        } catch (e) {
+            this.logger.info(`Failed to get mugshot URL for "${name}".`);
+        }
+
         if (mugshotData) {
             mugshotWikiUrl = mugshotData.url;
             mugshotTimestamp = mugshotData.timestamp;

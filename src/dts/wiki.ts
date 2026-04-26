@@ -19,14 +19,20 @@ const apiResCargoQuerySchema = z.object({
     }))
 });
 
-const apiResMugshotQuerySchema = z.object({
+const apiResImageSearchQuerySchema = z.object({
     query: z.object({
-        pages: z.record(z.string(), z.object({
-            imageinfo: z.array(z.object({
-                url: z.url(),
-                timestamp: z.string().max(50)
-            })).min(1)
-        }))
+        pages: z.record(z.string(), z.union([
+            z.object({
+                imageinfo: z.array(
+                    z.object({
+                        url: z.url(),
+                        timestamp: z.string().max(50)
+                    })).min(1)
+            }),
+            z.object({
+                missing: z.string()
+            })
+        ]))
     })
 });
 
@@ -264,16 +270,13 @@ export class WikiFetcher {
         }
 
         const infoboxContent = await this.parseInfoboxContent(pageContentMatch[1].trim());
-        let image: string | null = null;
+        let imageUrl = infoboxContent["image"].trim();
 
-        if (infoboxContent["image"]) {
-            try {
-                image = z.url().parse(infoboxContent["image"]);
-            } catch (e) {
-                throw new DTSError("Playgroup infobox image field is not a valid URL: " + infoboxContent["image"]);
-            }
+        let image = null;
+        if (imageUrl.length > 0) {
+            image = await this.getPlaygroupImageUrl(infoboxContent["image"]);
         }
-
+        
         let tooltip: string | null = infoboxContent["short_intro"] ? infoboxContent["short_intro"] : null;
 
         let summary = WikiFetcher.processWikitext(pageContentMatch[2].trim(), false);
@@ -282,7 +285,7 @@ export class WikiFetcher {
             summary = summary.slice(0, -4).trim();
         }
 
-        return { tooltip, summary, image };
+        return { tooltip, summary, image: image?.url ?? null };
     }
 
     private async getCargoTable(table: string, fields: string[]): Promise<any[]> {
@@ -355,6 +358,28 @@ export class WikiFetcher {
         return { success: out, duplicates: Array.from(duplicateNames), failed: failedNames };
     }
 
+    public async getPlaygroupImageUrl(playgroupImage: string): Promise<{url: string, timestamp: string} | null> {
+        const params = {
+            "action": "query",
+            "titles": `File:${playgroupImage}`,
+            "prop": "imageinfo",
+            "iiprop": "url|timestamp",
+            "format": "json"
+        }
+        const parsed = await this.getWikiAPIParsed(params, apiResImageSearchQuerySchema);
+        const pages = parsed.query.pages;
+        for (const pageId in pages) {
+            const page = pages[pageId];
+            if ('imageinfo' in page && page.imageinfo.length > 0) {
+                return {
+                    url: page.imageinfo[0].url,
+                    timestamp: page.imageinfo[0].timestamp
+                };
+            }
+        }
+        return null;
+    }
+
     public async getMugshotUrl(ferretName: string): Promise<{url: string, timestamp: string} | null> {
         const params = {
             "action": "query",
@@ -363,11 +388,11 @@ export class WikiFetcher {
             "iiprop": "url|timestamp",
             "format": "json"
         }
-        const parsed = await this.getWikiAPIParsed(params, apiResMugshotQuerySchema);
+        const parsed = await this.getWikiAPIParsed(params, apiResImageSearchQuerySchema);
         const pages = parsed.query.pages;
         for (const pageId in pages) {
             const page = pages[pageId];
-            if (page.imageinfo && page.imageinfo.length > 0) {
+            if ('imageinfo' in page && page.imageinfo.length > 0) {
                 return {
                     url: page.imageinfo[0].url,
                     timestamp: page.imageinfo[0].timestamp
