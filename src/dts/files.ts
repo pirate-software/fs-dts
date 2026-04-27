@@ -38,8 +38,8 @@ export class FileHandler {
         // crop, resize, and jpeg
         const image = sharp(Buffer.from(buffer));
         const metadata = await image.metadata();
-        const width = metadata.width || 512;
-        const height = metadata.height || 512;
+        const width = metadata.width || 768;
+        const height = metadata.height || 768;
 
         let cropped: sharp.Sharp;
         if (hasFrame) {
@@ -51,8 +51,8 @@ export class FileHandler {
         } else {
             cropped = image.extract({ left: 0, top: 0, width: width, height: height });
         }
-        const resized = cropped.resize(512, 512, { fit: 'inside', withoutEnlargement: true });
-        const finalBuffer = await resized.jpeg({ quality: 80 }).toBuffer();
+        const resized = cropped.resize(768, 768, { fit: 'inside', withoutEnlargement: true });
+        const finalBuffer = await resized.jpeg({ quality: 90 }).toBuffer();
 
         // create public/{type} directory if it doesn't exist
         if (!(await fs.stat(`${publicRoot}/${type}`).catch(() => false)))
